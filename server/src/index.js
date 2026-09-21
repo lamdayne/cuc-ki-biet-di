@@ -16,22 +16,32 @@ app.use(
   })
 );
 
-// Strict CORS config supporting cookies from frontend
+// CORS config supporting cookies from frontend
 const allowedOrigins = [
-  env.CLIENT_URL,
+  env.CLIENT_URL?.replace(/\/$/, ''),
+  'https://cuc-ki-biet-di.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
-];
+].filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
+
+      const normalizedOrigin = origin.replace(/\/$/, '');
+
+      // Allow if wildcard, matches configured origins, or is any Vercel app domain
+      if (
+        env.CLIENT_URL === '*' ||
+        allowedOrigins.includes(normalizedOrigin) ||
+        normalizedOrigin.endsWith('.vercel.app')
+      ) {
         return callback(null, true);
       }
+
       return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
