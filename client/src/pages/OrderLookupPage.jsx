@@ -33,18 +33,28 @@ export default function OrderLookupPage() {
   };
 
   useEffect(() => {
-    const initialCode = searchParams.get('code');
-    if (initialCode) {
-      setCode(initialCode);
-      fetchOrder(initialCode);
+    const urlCode = searchParams.get('code');
+    if (urlCode) {
+      const normalized = urlCode.trim().toUpperCase().replace(/[\u2013\u2014]/g, '-');
+      setCode(normalized);
+      fetchOrder(normalized);
     }
   }, [searchParams]);
 
   const handleSearch = (e) => {
     e.preventDefault();
-    if (!code.trim()) return;
-    setSearchParams({ code: code.trim().toUpperCase() });
-    fetchOrder(code.trim());
+    let cleaned = (code || '').trim().toUpperCase().replace(/[\u2013\u2014]/g, '-');
+    if (!cleaned) return;
+    if (!cleaned.startsWith('CK-') && /^\d{6}/.test(cleaned)) {
+      cleaned = `CK-${cleaned}`;
+    }
+    setCode(cleaned);
+
+    if (searchParams.get('code') === cleaned) {
+      fetchOrder(cleaned);
+    } else {
+      setSearchParams({ code: cleaned });
+    }
   };
 
   return (

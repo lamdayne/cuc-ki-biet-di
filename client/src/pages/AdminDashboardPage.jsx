@@ -79,7 +79,7 @@ export default function AdminDashboardPage() {
 
   const loadAllData = async () => {
     try {
-      const [ordersRes, catsRes, prodsRes] = await Promise.all([
+      const [ordersRes, catsRes, prodsRes] = await Promise.allSettled([
         api.getAdminOrders({
           pickupDate: orderDateFilter,
           status: orderStatusFilter,
@@ -87,10 +87,22 @@ export default function AdminDashboardPage() {
         api.getAdminCategories(),
         api.getAdminProducts(),
       ]);
-      setOrders(ordersRes.data.orders || []);
-      setDayCounts(ordersRes.data.dayCounts || {});
-      setCategories(catsRes.data || []);
-      setProducts(prodsRes.data || []);
+
+      if (ordersRes.status === 'fulfilled') {
+        setOrders(ordersRes.value.data.orders || []);
+        setDayCounts(ordersRes.value.data.dayCounts || {});
+      } else {
+        console.error('Lỗi tải đơn hàng:', ordersRes.reason);
+        showNotify(`Lỗi tải đơn hàng: ${ordersRes.reason?.message || 'Không thể lấy danh sách đơn'}`, true);
+      }
+
+      if (catsRes.status === 'fulfilled') {
+        setCategories(catsRes.value.data || []);
+      }
+
+      if (prodsRes.status === 'fulfilled') {
+        setProducts(prodsRes.value.data || []);
+      }
     } catch (err) {
       showNotify(err.message, true);
     }
@@ -489,28 +501,36 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
 
-                      {/* Day slot counter */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span
-                          className={`slot-badge ${isDayFull ? 'slot-full' : 'slot-available'}`}
-                          title="Số đơn trong ngày này"
+                      {/* Actions and Slot badge container */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <div
+                          className={`order-day-badge ${isDayFull ? 'day-full' : ''}`}
+                          title="Ngày nhận bánh và số lượng đơn trong ngày"
                         >
-                          <Calendar size={14} />
-                          Ngày {displayPickupDate}: {countForDay}/4 đơn
-                        </span>
+                          <Calendar size={16} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+                          <span className="order-day-label">
+                            Nhận: <strong>{displayPickupDate}</strong>
+                          </span>
+                          <span className={`order-day-pill ${isDayFull ? 'pill-full' : 'pill-available'}`}>
+                            {countForDay}/4 đơn
+                          </span>
+                        </div>
 
                         {/* Status update select */}
                         <select
-                          className="form-select"
+                          className="form-select status-select-pill"
                           value={ord.status}
                           onChange={(e) => handleStatusChange(ord.id, e.target.value)}
                           style={{
-                            padding: '6px 14px',
-                            fontWeight: 600,
+                            padding: '7px 16px',
+                            fontWeight: 700,
+                            fontSize: '0.9rem',
                             background: statusMeta.badgeBg,
                             color: statusMeta.badgeText,
                             borderColor: statusMeta.borderColor,
                             cursor: 'pointer',
+                            borderRadius: 'var(--pill-radius)',
+                            boxShadow: '0 2px 6px rgba(74, 44, 26, 0.05)',
                           }}
                         >
                           {Object.entries(ORDER_STATUS_MAP).map(([stKey, stVal]) => (

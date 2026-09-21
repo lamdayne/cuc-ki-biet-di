@@ -143,7 +143,10 @@ export const orderService = {
   },
 
   async lookupOrderByCode(code) {
-    const formattedCode = code.trim().toUpperCase();
+    let formattedCode = (code || '').trim().toUpperCase().replace(/[\u2013\u2014]/g, '-');
+    if (!formattedCode.startsWith('CK-') && /^\d{6}/.test(formattedCode)) {
+      formattedCode = `CK-${formattedCode}`;
+    }
 
     if (!isSupabaseLive) {
       const order = memoryStore.getOrderByCode(formattedCode);

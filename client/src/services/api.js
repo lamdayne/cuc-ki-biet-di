@@ -8,6 +8,12 @@ async function request(endpoint, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
+  // Include admin Bearer token for seamless cross-site authentication
+  const adminToken = localStorage.getItem('admin_token');
+  if (adminToken && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${adminToken}`;
+  }
+
   const response = await fetch(url, {
     credentials: 'include',
     ...options,
@@ -43,22 +49,34 @@ export const api = {
     });
   },
 
-  lookupOrder(code) {
-    return request(`/api/orders/${encodeURIComponent(code.trim().toUpperCase())}`);
+  lookupOrder(rawCode) {
+    let code = (rawCode || '').trim().toUpperCase().replace(/[\u2013\u2014]/g, '-');
+    if (!code.startsWith('CK-') && /^\d{6}/.test(code)) {
+      code = `CK-${code}`;
+    }
+    return request(`/api/orders/${encodeURIComponent(code)}`);
   },
 
   // Admin
-  adminLogin(pin) {
-    return request('/api/admin/login', {
+  async adminLogin(pin) {
+    const res = await request('/api/admin/login', {
       method: 'POST',
       body: JSON.stringify({ pin }),
     });
+    if (res?.token) {
+      localStorage.setItem('admin_token', res.token);
+    }
+    return res;
   },
 
-  adminLogout() {
-    return request('/api/admin/logout', {
-      method: 'POST',
-    });
+  async adminLogout() {
+    try {
+      await request('/api/admin/logout', {
+        method: 'POST',
+      });
+    } finally {
+      localStorage.removeItem('admin_token');
+    }
   },
 
   checkAdminAuth() {

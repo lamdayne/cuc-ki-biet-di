@@ -1,13 +1,12 @@
 import React from 'react';
 import { Check, XCircle, Clock, ChefHat, PackageCheck, HeartHandshake } from 'lucide-react';
-import { ORDER_STATUS_MAP } from '../utils/formatters';
 
 const TIMELINE_STEPS = [
-  { key: 'pending', label: 'Chờ xác nhận', icon: Clock },
-  { key: 'confirmed', label: 'Đã xác nhận', icon: Check },
-  { key: 'baking', label: 'Đang làm bánh', icon: ChefHat },
-  { key: 'ready', label: 'Sẵn sàng nhận bánh', icon: PackageCheck },
-  { key: 'done', label: 'Hoàn thành', icon: HeartHandshake },
+  { key: 'pending', label: 'Chờ xác nhận', desc: 'Đơn đã gửi, chờ tiệm duyệt', icon: Clock },
+  { key: 'confirmed', label: 'Đã xác nhận', desc: 'Tiệm đã nhận đơn', icon: Check },
+  { key: 'baking', label: 'Đang làm bánh', desc: 'Bếp đang nướng bánh', icon: ChefHat },
+  { key: 'ready', label: 'Sẵn sàng nhận bánh', desc: 'Bánh đã đóng gói xong', icon: PackageCheck },
+  { key: 'done', label: 'Hoàn thành', desc: 'Đã giao tới bạn', icon: HeartHandshake },
 ];
 
 export default function StatusTimeline({ status = 'pending' }) {
@@ -15,50 +14,77 @@ export default function StatusTimeline({ status = 'pending' }) {
 
   if (isCancelled) {
     return (
-      <div style={{ textAlign: 'center', margin: '30px 0' }}>
+      <div className="timeline-cancelled-card">
         <div className="cancelled-badge">
-          <XCircle size={22} />
+          <XCircle size={24} />
           <span>Đơn hàng đã bị hủy</span>
         </div>
-        <p style={{ color: 'var(--color-text-muted)', marginTop: '10px', fontSize: '0.92rem' }}>
-          Đơn hàng này đã được hủy trên hệ thống. Nếu có thắc mắc, bạn vui lòng liên hệ tiệm qua mạng xã hội nhé.
+        <p className="cancelled-desc">
+          Đơn hàng này hiện đã được hủy trên hệ thống. Nếu cần hỗ trợ đặt lại, bạn vui lòng liên hệ tiệm qua trang mạng xã hội nhé!
         </p>
       </div>
     );
   }
 
-  const currentStepIndex = TIMELINE_STEPS.findIndex((s) => s.key === status);
-  const activeIndex = currentStepIndex >= 0 ? currentStepIndex : 0;
-  const progressPercent = (activeIndex / (TIMELINE_STEPS.length - 1)) * 100;
+  const activeIndex = Math.max(
+    0,
+    TIMELINE_STEPS.findIndex((s) => s.key === status)
+  );
 
   return (
-    <div style={{ margin: '36px 0 24px 0' }}>
-      <div className="timeline-container">
-        <div className="timeline-line-bg" />
-        <div
-          className="timeline-line-progress"
-          style={{ width: `calc(${progressPercent}% * 0.85)` }}
-        />
+    <div className="timeline-card-wrapper">
+      <div className="timeline-header">
+        <span className="timeline-header-title">
+          <Clock size={16} /> Tiến độ đơn hàng
+        </span>
+        <span className="timeline-header-badge">
+          {TIMELINE_STEPS[activeIndex]?.label || 'Đang xử lý'}
+        </span>
+      </div>
 
+      <div className="timeline-stepper">
         {TIMELINE_STEPS.map((stepItem, index) => {
           const isCompleted = index < activeIndex;
           const isCurrent = index === activeIndex;
+          const isFuture = index > activeIndex;
+          const hasNext = index < TIMELINE_STEPS.length - 1;
+          const isConnectorCompleted = index < activeIndex;
           const StepIcon = stepItem.icon;
 
-          let stepClass = '';
-          if (isCompleted) stepClass = 'completed';
-          if (isCurrent) stepClass = 'current';
-
           return (
-            <div key={stepItem.key} className={`timeline-step ${stepClass}`}>
-              <div className="step-node">
+            <div
+              key={stepItem.key}
+              className={`timeline-col ${isCompleted ? 'is-completed' : ''} ${
+                isCurrent ? 'is-current' : ''
+              } ${isFuture ? 'is-future' : ''}`}
+            >
+              {/* Connector line to the next node (center to center) */}
+              {hasNext && (
+                <div
+                  className={`timeline-connector ${
+                    isConnectorCompleted ? 'connector-filled' : ''
+                  }`}
+                />
+              )}
+
+              {/* Step Node */}
+              <div className="timeline-node">
                 {isCompleted ? (
-                  <Check size={18} strokeWidth={3} />
+                  <Check size={20} strokeWidth={3} />
                 ) : (
-                  <StepIcon size={18} />
+                  <StepIcon size={20} strokeWidth={isCurrent ? 2.5 : 2} />
                 )}
               </div>
-              <span className="step-label">{stepItem.label}</span>
+
+              {/* Step Text Info */}
+              <div className="timeline-info">
+                <div className="timeline-title">{stepItem.label}</div>
+                {isCurrent ? (
+                  <div className="timeline-badge-now">Đang xử lý</div>
+                ) : (
+                  <div className="timeline-desc">{stepItem.desc}</div>
+                )}
+              </div>
             </div>
           );
         })}

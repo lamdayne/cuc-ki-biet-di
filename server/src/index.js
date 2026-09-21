@@ -67,6 +67,11 @@ app.use(errorHandler);
 const PORT = env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🍪 Server Cúc-Ki Biết Đi đang chạy tại cổng http://localhost:${PORT}`);
+  if (env.SUPABASE_URL && !env.SUPABASE_URL.includes('placeholder')) {
+    console.log(`⚡ Đã kết nối Supabase thành công: ${env.SUPABASE_URL}`);
+  } else {
+    console.log(`⚠️ Đang chạy chế độ bộ nhớ đệm (Chưa cấu hình Supabase trong .env)`);
+  }
 });
 
 export default app;

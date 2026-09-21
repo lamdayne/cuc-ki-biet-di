@@ -1,4 +1,12 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Explicitly load .env from server directory first, regardless of where the command was run
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Fallback to process.cwd() .env
 dotenv.config();
 
 export const env = {

@@ -51,12 +51,13 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     res.cookie('admin_token', token, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
-      sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 4 * 60 * 60 * 1000,
     });
 
     res.json({
       success: true,
+      token,
       message: 'Đăng nhập quản trị thành công',
     });
   } catch (err) {
@@ -71,7 +72,7 @@ router.post('/logout', (req, res) => {
   res.clearCookie('admin_token', {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
   });
   res.json({ success: true, message: 'Đã đăng xuất' });
 });

@@ -26,7 +26,7 @@ export const adminService = {
 
     let query = supabase
       .from('orders')
-      .select('*, order_items(*)')
+      .select('*')
       .order('pickup_date', { ascending: true })
       .order('created_at', { ascending: false });
 
@@ -39,6 +39,30 @@ export const adminService = {
 
     const { data: orders, error } = await query;
     if (error) throw error;
+
+    // Fetch order items separately to ensure 100% reliability with PostgREST
+    const orderIds = (orders || []).map((o) => o.id);
+    let itemsByOrderId = {};
+
+    if (orderIds.length > 0) {
+      const { data: allItems, error: itemsErr } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds);
+
+      if (!itemsErr && allItems) {
+        itemsByOrderId = allItems.reduce((acc, item) => {
+          if (!acc[item.order_id]) acc[item.order_id] = [];
+          acc[item.order_id].push(item);
+          return acc;
+        }, {});
+      }
+    }
+
+    const ordersWithItems = (orders || []).map((ord) => ({
+      ...ord,
+      order_items: itemsByOrderId[ord.id] || [],
+    }));
 
     const dates = Array.from(new Set((orders || []).map((o) => o.pickup_date)));
     let dayCounts = {};
@@ -59,7 +83,7 @@ export const adminService = {
     }
 
     return {
-      orders: orders || [],
+      orders: ordersWithItems,
       dayCounts,
     };
   },
