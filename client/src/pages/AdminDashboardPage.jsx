@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatMoney, ORDER_STATUS_MAP } from '../utils/formatters';
+import Pagination from '../components/Pagination';
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -27,6 +28,16 @@ export default function AdminDashboardPage() {
   const [dayCounts, setDayCounts] = useState({});
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+
+  // Pagination states
+  const [orderPage, setOrderPage] = useState(1);
+  const [ordersPerPage, setOrdersPerPage] = useState(5);
+
+  const [prodPage, setProdPage] = useState(1);
+  const [prodsPerPage, setProdsPerPage] = useState(10);
+
+  const [catPage, setCatPage] = useState(1);
+  const [catsPerPage, setCatsPerPage] = useState(10);
 
   // Filters
   const [orderDateFilter, setOrderDateFilter] = useState('');
@@ -135,6 +146,7 @@ export default function AdminDashboardPage() {
 
   const handleFilterOrders = async (e) => {
     e?.preventDefault();
+    setOrderPage(1);
     try {
       const res = await api.getAdminOrders({
         pickupDate: orderDateFilter,
@@ -297,6 +309,31 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Pagination calculations
+  const totalOrders = orders.length;
+  const totalOrderPages = Math.max(1, Math.ceil(totalOrders / ordersPerPage));
+  const paginatedOrders = orders.slice(
+    (orderPage - 1) * ordersPerPage,
+    orderPage * ordersPerPage
+  );
+
+  const filteredProducts = products.filter((p) =>
+    productCategoryFilter ? p.category_id === productCategoryFilter : true
+  );
+  const totalProducts = filteredProducts.length;
+  const totalProdPages = Math.max(1, Math.ceil(totalProducts / prodsPerPage));
+  const paginatedProducts = filteredProducts.slice(
+    (prodPage - 1) * prodsPerPage,
+    prodPage * prodsPerPage
+  );
+
+  const totalCategories = categories.length;
+  const totalCatPages = Math.max(1, Math.ceil(totalCategories / catsPerPage));
+  const paginatedCategories = categories.slice(
+    (catPage - 1) * catsPerPage,
+    catPage * catsPerPage
+  );
+
   if (loading) {
     return (
       <div className="container" style={{ padding: '80px 20px', textAlign: 'center' }}>
@@ -441,6 +478,7 @@ export default function AdminDashboardPage() {
                 onClick={() => {
                   setOrderDateFilter('');
                   setOrderStatusFilter('');
+                  setOrderPage(1);
                   api.getAdminOrders().then((res) => {
                     setOrders(res.data.orders || []);
                     setDayCounts(res.data.dayCounts || {});
@@ -463,7 +501,7 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {orders.map((ord) => {
+              {paginatedOrders.map((ord) => {
                 const countForDay = dayCounts[ord.pickup_date] ?? 0;
                 const isDayFull = countForDay >= 4;
                 const statusMeta = ORDER_STATUS_MAP[ord.status] || ORDER_STATUS_MAP.pending;
@@ -472,20 +510,9 @@ export default function AdminDashboardPage() {
 
                 return (
                   <div key={ord.id} className="form-card" style={{ padding: '24px' }}>
-                    {/* Header line */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '12px',
-                        borderBottom: '1.5px solid var(--card-border)',
-                        paddingBottom: '14px',
-                        marginBottom: '16px',
-                      }}
-                    >
-                      <div>
+                    {/* Header line - Đảm bảo nằm ngang 1 dòng */}
+                    <div className="admin-order-header">
+                      <div className="admin-order-title-group">
                         <span
                           style={{
                             fontFamily: 'monospace',
@@ -502,7 +529,7 @@ export default function AdminDashboardPage() {
                       </div>
 
                       {/* Actions and Slot badge container */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <div className="admin-order-actions-group">
                         <div
                           className={`order-day-badge ${isDayFull ? 'day-full' : ''}`}
                           title="Ngày nhận bánh và số lượng đơn trong ngày"
@@ -628,6 +655,21 @@ export default function AdminDashboardPage() {
                   </div>
                 );
               })}
+
+              {orders.length > 0 && (
+                <Pagination
+                  currentPage={orderPage}
+                  totalPages={totalOrderPages}
+                  onPageChange={setOrderPage}
+                  totalItems={totalOrders}
+                  pageSize={ordersPerPage}
+                  onPageSizeChange={(newSize) => {
+                    setOrdersPerPage(newSize);
+                    setOrderPage(1);
+                  }}
+                  itemName="đơn hàng"
+                />
+              )}
             </div>
           )}
         </div>
@@ -665,7 +707,7 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {categories.map((cat) => (
+                {paginatedCategories.map((cat) => (
                   <tr key={cat.id}>
                     <td style={{ width: '90px' }}>
                       {cat.image_url ? (
@@ -738,6 +780,21 @@ export default function AdminDashboardPage() {
               </tbody>
             </table>
           </div>
+
+          {categories.length > 0 && (
+            <Pagination
+              currentPage={catPage}
+              totalPages={totalCatPages}
+              onPageChange={setCatPage}
+              totalItems={totalCategories}
+              pageSize={catsPerPage}
+              onPageSizeChange={(newSize) => {
+                setCatsPerPage(newSize);
+                setCatPage(1);
+              }}
+              itemName="loại cookie"
+            />
+          )}
         </div>
       )}
 
@@ -760,7 +817,10 @@ export default function AdminDashboardPage() {
               <select
                 className="form-select"
                 value={productCategoryFilter}
-                onChange={(e) => setProductCategoryFilter(e.target.value)}
+                onChange={(e) => {
+                  setProductCategoryFilter(e.target.value);
+                  setProdPage(1);
+                }}
                 style={{ padding: '8px 16px', minWidth: '180px' }}
               >
                 <option value="">-- Tất cả loại cookie --</option>
@@ -791,11 +851,7 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {products
-                  .filter((p) =>
-                    productCategoryFilter ? p.category_id === productCategoryFilter : true
-                  )
-                  .map((prod) => (
+                {paginatedProducts.map((prod) => (
                     <tr key={prod.id}>
                       <td>
                         <strong>{prod.name}</strong>
@@ -852,6 +908,21 @@ export default function AdminDashboardPage() {
               </tbody>
             </table>
           </div>
+
+          {totalProducts > 0 && (
+            <Pagination
+              currentPage={prodPage}
+              totalPages={totalProdPages}
+              onPageChange={setProdPage}
+              totalItems={totalProducts}
+              pageSize={prodsPerPage}
+              onPageSizeChange={(newSize) => {
+                setProdsPerPage(newSize);
+                setProdPage(1);
+              }}
+              itemName="bánh"
+            />
+          )}
         </div>
       )}
 
