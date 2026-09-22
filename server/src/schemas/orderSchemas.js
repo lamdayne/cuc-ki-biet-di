@@ -90,10 +90,19 @@ export const updateOrderStatusSchema = z.object({
 
 export const categorySchema = z.object({
   name: z.string().trim().min(2, 'Tên danh mục tối thiểu 2 ký tự'),
-  slug: z.string().trim().min(2, 'Slug tối thiểu 2 ký tự').optional(),
-  display_order: z.number().int().default(0),
+  slug: z
+    .string()
+    .trim()
+    .optional()
+    .transform((val) => (val && val.length > 0 ? val : undefined)),
+  display_order: z.coerce.number().int().default(0),
   is_active: z.boolean().default(true),
-  image_url: z.string().url().nullable().optional(),
+  image_url: z
+    .string()
+    .trim()
+    .optional()
+    .nullable()
+    .transform((val) => (val && val.length > 0 ? val : null)),
 });
 
 export const productSchema = z.object({

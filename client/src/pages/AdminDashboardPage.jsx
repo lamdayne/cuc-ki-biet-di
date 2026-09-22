@@ -225,11 +225,19 @@ export default function AdminDashboardPage() {
   const handleSaveCategory = async (e) => {
     e.preventDefault();
     try {
+      const payload = {
+        name: catForm.name.trim(),
+        slug: catForm.slug?.trim() ? catForm.slug.trim() : undefined,
+        display_order: Number(catForm.display_order) || 0,
+        is_active: Boolean(catForm.is_active),
+        image_url: catForm.image_url?.trim() ? catForm.image_url.trim() : null,
+      };
+
       if (editingCategory) {
-        await api.updateCategory(editingCategory.id, catForm);
+        await api.updateCategory(editingCategory.id, payload);
         showNotify('Đã cập nhật danh mục');
       } else {
-        await api.createCategory(catForm);
+        await api.createCategory(payload);
         showNotify('Đã thêm danh mục mới');
       }
       setCatModalOpen(false);
@@ -964,7 +972,20 @@ export default function AdminDashboardPage() {
                   type="text"
                   className="form-input"
                   value={catForm.name}
-                  onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!editingCategory) {
+                      const autoSlug = val
+                        .toLowerCase()
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/(^-|-$)/g, '');
+                      setCatForm({ ...catForm, name: val, slug: autoSlug });
+                    } else {
+                      setCatForm({ ...catForm, name: val });
+                    }
+                  }}
                   placeholder="Ví dụ: CÚC KI CHOCOCHIP"
                   required
                 />

@@ -95,25 +95,6 @@ export default function OrderReviewModal({
               {formattedPickupDate}
             </span>
           </div>
-          <div className="info-row" style={{ alignItems: 'flex-start', gap: '8px' }}>
-            <span className="info-label" style={{ flexShrink: 0 }}>Thanh toán phí ship:</span>
-            <span className="info-value" style={{ maxWidth: '65%', textAlign: 'right', fontWeight: 500, lineHeight: 1.45 }}>
-              Còn chi phí ship bạn vui lòng liên hệ với cúc-ki biết đi qua{' '}
-              <a
-                href="https://www.instagram.com/cucki.bicdi/"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: 'var(--color-primary)',
-                  fontWeight: 600,
-                  textDecoration: 'underline',
-                  wordBreak: 'break-all',
-                }}
-              >
-                https://www.instagram.com/cucki.bicdi/
-              </a>
-            </span>
-          </div>
           {formData.note && (
             <div className="info-row">
               <span className="info-label">Ghi chú:</span>
