@@ -17,6 +17,7 @@ import {
 import { api } from '../services/api';
 import { formatMoney, ORDER_STATUS_MAP } from '../utils/formatters';
 import Pagination from '../components/Pagination';
+import ImageCropModal from '../components/ImageCropModal';
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -55,6 +56,8 @@ export default function AdminDashboardPage() {
     image_url: '',
   });
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [selectedFileForCrop, setSelectedFileForCrop] = useState(null);
 
   const [prodModalOpen, setProdModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -184,18 +187,38 @@ export default function AdminDashboardPage() {
     setCatModalOpen(true);
   };
 
-  const handleImageUpload = async (e) => {
+  const handleSelectImageToCrop = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSelectedFileForCrop(file);
+    setCropModalOpen(true);
+    e.target.value = '';
+  };
+
+  const handleConfirmCroppedImage = async (croppedFile) => {
+    setCropModalOpen(false);
     setUploadingImage(true);
     try {
-      const res = await api.uploadCategoryImage(file);
-      setCatForm((prev) => ({ ...prev, image_url: res.data.imageUrl }));
-      showNotify('Tải ảnh banner lên thành công');
+      const res = await api.uploadCategoryImage(croppedFile);
+      const newImageUrl = res.data.imageUrl;
+      setCatForm((prev) => ({ ...prev, image_url: newImageUrl }));
+
+      // Nếu đang chỉnh sửa danh mục hiện có: Tự động lưu ngay vào cơ sở dữ liệu
+      if (editingCategory) {
+        await api.updateCategory(editingCategory.id, {
+          ...catForm,
+          image_url: newImageUrl,
+        });
+        await loadData();
+        showNotify('Đã cắt và LƯU ảnh banner danh mục thành công!');
+      } else {
+        showNotify('Đã cắt và tải ảnh lên. Hãy bấm "Lưu danh mục" để hoàn tất.');
+      }
     } catch (err) {
       showNotify(err.message || 'Lỗi khi tải ảnh', true);
     } finally {
       setUploadingImage(false);
+      setSelectedFileForCrop(null);
     }
   };
 
@@ -983,7 +1006,7 @@ export default function AdminDashboardPage() {
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={handleImageUpload}
+                      onChange={handleSelectImageToCrop}
                       style={{ display: 'none' }}
                       disabled={uploadingImage}
                     />
@@ -1002,7 +1025,7 @@ export default function AdminDashboardPage() {
                 </div>
 
                 {catForm.image_url && (
-                  <div style={{ borderRadius: '12px', overflow: 'hidden', height: '120px', border: '1px solid var(--card-border)' }}>
+                  <div style={{ borderRadius: '12px', overflow: 'hidden', aspectRatio: '16 / 5', width: '100%', height: 'auto', border: '1.5px solid var(--card-border)' }}>
                     <img
                       src={catForm.image_url}
                       alt="Banner Preview"
@@ -1135,6 +1158,19 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Image Crop & Resize Modal */}
+      <ImageCropModal
+        isOpen={cropModalOpen}
+        imageFile={selectedFileForCrop}
+        categoryName={catForm.name || 'Tên Danh Mục'}
+        isUploading={uploadingImage}
+        onClose={() => {
+          setCropModalOpen(false);
+          setSelectedFileForCrop(null);
+        }}
+        onConfirm={handleConfirmCroppedImage}
+      />
     </div>
   );
 }
