@@ -116,14 +116,28 @@ export const productSchema = z.object({
 export const packingFeeConfigSchema = z.object({
   amount: z.coerce.number().int().min(0, 'Phí mặc định không được âm').default(2000),
   default_fee: z.coerce.number().int().min(0, 'Phí mặc định không được âm').default(2000),
-  tiers: z
+  product_rules: z
     .array(
       z.object({
-        from: z.coerce.number().int().min(1, 'Số lượng từ tối thiểu là 1'),
-        to: z.coerce.number().int().min(1, 'Số lượng đến tối thiểu là 1').nullable().optional(),
-        fee: z.coerce.number().int().min(0, 'Phí gói không được âm'),
+        product_id: z.string().uuid('ID sản phẩm không hợp lệ'),
+        product_name: z.string().optional(),
+        base_fee: z.coerce.number().int().min(0).default(2000),
+        rule_type: z.enum(['tiers', 'step']).default('tiers'),
+        tiers: z
+          .array(
+            z.object({
+              from: z.coerce.number().int().min(1, 'Số lượng từ tối thiểu là 1'),
+              to: z.coerce.number().int().min(1, 'Số lượng đến tối thiểu là 1').nullable().optional(),
+              fee: z.coerce.number().int().min(0, 'Phí gói không được âm'),
+            })
+          )
+          .optional()
+          .default([]),
+        step_quantity: z.coerce.number().int().min(1).optional().default(5),
+        step_fee: z.coerce.number().int().min(0).optional().default(5000),
       })
     )
     .default([]),
 });
+
 

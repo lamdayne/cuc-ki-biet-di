@@ -80,8 +80,10 @@ export default function AdminDashboardPage() {
   // Packing Fee Config states
   const [packingFeeConfig, setPackingFeeConfig] = useState(DEFAULT_PACKING_FEE_CONFIG);
   const [savingPackingFee, setSavingPackingFee] = useState(false);
-  const [simQty1, setSimQty1] = useState(1);
-  const [simQty2, setSimQty2] = useState(2);
+  const [simSelectedProduct1, setSimSelectedProduct1] = useState('');
+  const [simSelectedProduct2, setSimSelectedProduct2] = useState('');
+  const [simQty1, setSimQty1] = useState(5);
+  const [simQty2, setSimQty2] = useState(20);
 
   const [notification, setNotification] = useState(null);
 
@@ -155,18 +157,29 @@ export default function AdminDashboardPage() {
     e?.preventDefault();
     try {
       setSavingPackingFee(true);
-      const cleanTiers = (packingFeeConfig.tiers || []).map((t) => ({
-        from: Math.max(1, parseInt(t.from, 10) || 1),
-        to: t.to !== '' && t.to != null ? Math.max(1, parseInt(t.to, 10) || 1) : null,
-        fee: Math.max(0, parseInt(t.fee, 10) || 0),
-      }));
+      const cleanProductRules = (packingFeeConfig.product_rules || []).map((rule) => {
+        const cleanTiers = (rule.tiers || []).map((t) => ({
+          from: Math.max(1, parseInt(t.from, 10) || 1),
+          to: t.to !== '' && t.to != null ? Math.max(1, parseInt(t.to, 10) || 1) : null,
+          fee: Math.max(0, parseInt(t.fee, 10) || 0),
+        }));
+        cleanTiers.sort((a, b) => a.from - b.from);
 
-      cleanTiers.sort((a, b) => a.from - b.from);
+        return {
+          product_id: rule.product_id,
+          product_name: rule.product_name || '',
+          base_fee: Math.max(0, parseInt(rule.base_fee, 10) || 2000),
+          rule_type: rule.rule_type === 'step' ? 'step' : 'tiers',
+          tiers: cleanTiers,
+          step_quantity: Math.max(1, parseInt(rule.step_quantity, 10) || 5),
+          step_fee: Math.max(0, parseInt(rule.step_fee, 10) || 5000),
+        };
+      });
 
       const payload = {
         default_fee: Math.max(0, parseInt(packingFeeConfig.default_fee, 10) || 2000),
         amount: Math.max(0, parseInt(packingFeeConfig.default_fee, 10) || 2000),
-        tiers: cleanTiers,
+        product_rules: cleanProductRules,
       };
 
       const res = await api.updatePackingFeeConfig(payload);
@@ -179,50 +192,93 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleAddTier = () => {
-    const tiers = packingFeeConfig.tiers || [];
+  const handleAddProductRule = (productId) => {
+    if (!productId) return;
+    const prod = products.find((p) => p.id === productId);
+    if (!prod) return;
+
+    const existingRules = packingFeeConfig.product_rules || [];
+    if (existingRules.some((r) => r.product_id === productId)) {
+      showNotify('Loại bánh này đã có trong danh sách cấu hình riêng!', true);
+      return;
+    }
+
+    const newRule = {
+      product_id: prod.id,
+      product_name: prod.name,
+      base_fee: 2000,
+      rule_type: 'tiers',
+      tiers: [
+        { from: 1, to: 4, fee: 2000 },
+        { from: 5, to: 9, fee: 10000 },
+        { from: 10, to: 19, fee: 15000 },
+        { from: 20, to: null, fee: 20000 },
+      ],
+      step_quantity: 5,
+      step_fee: 5000,
+    };
+
+    setPackingFeeConfig({
+      ...packingFeeConfig,
+      product_rules: [...existingRules, newRule],
+    });
+    showNotify(`Đã thêm cấu hình riêng cho "${prod.name}"`);
+  };
+
+  const handleRemoveProductRule = (productId) => {
+    const existingRules = packingFeeConfig.product_rules || [];
+    setPackingFeeConfig({
+      ...packingFeeConfig,
+      product_rules: existingRules.filter((r) => r.product_id !== productId),
+    });
+    showNotify('Đã xóa cấu hình riêng. Loại bánh này sẽ áp dụng mức mặc định 2.000đ.');
+  };
+
+  const handleUpdateProductRule = (productId, updates) => {
+    const existingRules = packingFeeConfig.product_rules || [];
+    setPackingFeeConfig({
+      ...packingFeeConfig,
+      product_rules: existingRules.map((r) =>
+        r.product_id === productId ? { ...r, ...updates } : r
+      ),
+    });
+  };
+
+  const handleAddTierToRule = (productId) => {
+    const existingRules = packingFeeConfig.product_rules || [];
+    const rule = existingRules.find((r) => r.product_id === productId);
+    if (!rule) return;
+
+    const tiers = rule.tiers || [];
     const lastTier = tiers[tiers.length - 1];
     const nextFrom = lastTier ? Number(lastTier.to || lastTier.from) + 1 : 1;
-    const nextFee = lastTier ? (Number(lastTier.fee) || 2000) + 2000 : 2000;
-    setPackingFeeConfig({
-      ...packingFeeConfig,
-      tiers: [...tiers, { from: nextFrom, to: nextFrom + 1, fee: nextFee }],
-    });
+    const nextFee = lastTier ? Number(lastTier.fee) + 5000 : 5000;
+
+    const newTiers = [...tiers, { from: nextFrom, to: nextFrom + 4, fee: nextFee }];
+    handleUpdateProductRule(productId, { tiers: newTiers });
   };
 
-  const handleRemoveTier = (index) => {
-    const newTiers = [...(packingFeeConfig.tiers || [])];
-    newTiers.splice(index, 1);
-    setPackingFeeConfig({
-      ...packingFeeConfig,
-      tiers: newTiers,
-    });
+  const handleRemoveTierFromRule = (productId, tierIndex) => {
+    const existingRules = packingFeeConfig.product_rules || [];
+    const rule = existingRules.find((r) => r.product_id === productId);
+    if (!rule) return;
+
+    const newTiers = [...(rule.tiers || [])];
+    newTiers.splice(tierIndex, 1);
+    handleUpdateProductRule(productId, { tiers: newTiers });
   };
 
-  const handleTierChange = (index, field, value) => {
-    const newTiers = [...(packingFeeConfig.tiers || [])];
-    newTiers[index] = {
-      ...newTiers[index],
+  const handleTierChangeInRule = (productId, tierIndex, field, value) => {
+    const existingRules = packingFeeConfig.product_rules || [];
+    const rule = existingRules.find((r) => r.product_id === productId);
+    if (!rule) return;
+
+    const newTiers = [...(rule.tiers || [])];
+    newTiers[tierIndex] = {
+      ...newTiers[tierIndex],
       [field]: value === '' && field === 'to' ? null : value,
     };
-    setPackingFeeConfig({
-      ...packingFeeConfig,
-      tiers: newTiers,
-    });
-  };
-
-  const handleResetDefaultTiers = () => {
-    setPackingFeeConfig({
-      default_fee: 2000,
-      amount: 2000,
-      tiers: [
-        { from: 1, to: 1, fee: 2000 },
-        { from: 2, to: 3, fee: 4000 },
-        { from: 4, to: 6, fee: 6000 },
-        { from: 7, to: null, fee: 8000 },
-      ],
-    });
-    showNotify('Đã đặt lại các mốc cấu hình mặc định (bấm Lưu để áp dụng)');
+    handleUpdateProductRule(productId, { tiers: newTiers });
   };
 
   // Orders Tab handlers
@@ -1078,26 +1134,16 @@ export default function AdminDashboardPage() {
               <div>
                 <h2 style={{ fontSize: '1.45rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <Sliders size={24} style={{ color: 'var(--color-accent-terracotta)' }} />
-                  Cấu Hình Phí Gói Bánh
+                  Cấu Hình Phí Gói Bánh (Phí Đóng Hộp)
                 </h2>
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '0.94rem', marginTop: '6px', maxWidth: '780px', lineHeight: 1.6 }}>
-                  Quy tắc: <strong>Mỗi loại bánh trong đơn sẽ tính phí gói riêng theo số lượng đặt của loại đó</strong>, sau đó cộng dồn lại vào tổng phí gói của đơn hàng.
+                  • <strong>Mặc định:</strong> Mọi loại bánh đều có phí gói là <strong>2.000đ</strong> cố định (dù khách mua 1 cái hay nhiều cái).
                   <br />
-                  Ví dụ: Mua 1 bánh Matcha tính theo mốc 1 bánh, và 3 bánh Cacao tính theo mốc 3 bánh.
+                  • <strong>Cấu hình riêng:</strong> Nếu có loại bánh cần tính thêm phí theo số lượng (ví dụ: cứ 5 cái thêm 10k, hoặc mua 20 cái thì 20k phí gói), bạn chọn loại bánh đó ở bên dưới để cài đặt.
                 </p>
               </div>
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={handleResetDefaultTiers}
-                  title="Khôi phục mốc mẫu được đề xuất"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem' }}
-                >
-                  <RotateCcw size={15} />
-                  Mốc mẫu
-                </button>
                 <button
                   type="button"
                   className="btn-primary"
@@ -1119,318 +1165,500 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px' }}>
-            {/* Left Column: Config Form */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Phí mặc định card */}
-              <div className="form-card" style={{ padding: '20px', borderRadius: '18px' }}>
-                <h3 style={{ fontSize: '1.15rem', color: 'var(--color-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Package size={18} style={{ color: 'var(--color-accent-terracotta)' }} />
-                  Phí Gói Mặc Định (Cho 1 bánh)
+          {/* Row 1: Mức phí mặc định chung */}
+          <div className="form-card" style={{ padding: '20px', borderRadius: '18px' }}>
+            <h3 style={{ fontSize: '1.15rem', color: 'var(--color-primary)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Package size={18} style={{ color: 'var(--color-accent-terracotta)' }} />
+              Phí Gói Mặc Định Toàn Cửa Hàng
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '12px' }}>
+              Áp dụng cố định cho bất kỳ loại bánh nào <strong>không nằm trong danh sách cấu hình riêng</strong> bên dưới, bất kể khách mua số lượng bao nhiêu cái.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <input
+                type="number"
+                className="form-input"
+                style={{ fontSize: '1.1rem', fontWeight: 700, maxWidth: '180px' }}
+                step="500"
+                min="0"
+                value={packingFeeConfig.default_fee ?? 2000}
+                onChange={(e) =>
+                  setPackingFeeConfig({
+                    ...packingFeeConfig,
+                    default_fee: e.target.value,
+                    amount: e.target.value,
+                  })
+                }
+                required
+              />
+              <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-accent-terracotta)' }}>
+                = {formatMoney(Number(packingFeeConfig.default_fee) || 2000)} / loại bánh
+              </span>
+            </div>
+          </div>
+
+          {/* Row 2: Danh sách loại bánh cấu hình riêng */}
+          <div className="form-card" style={{ padding: '24px', borderRadius: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <Cookie size={20} style={{ color: 'var(--color-accent-terracotta)' }} />
+                  Cấu Hình Riêng Theo Từng Loại Bánh
                 </h3>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Mức phí cơ bản (VNĐ) *</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <input
-                      type="number"
-                      className="form-input"
-                      style={{ fontSize: '1.1rem', fontWeight: 700, maxWidth: '200px' }}
-                      step="500"
-                      min="0"
-                      value={packingFeeConfig.default_fee ?? 2000}
-                      onChange={(e) =>
-                        setPackingFeeConfig({
-                          ...packingFeeConfig,
-                          default_fee: e.target.value,
-                          amount: e.target.value,
-                        })
-                      }
-                      required
-                    />
-                    <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-accent-terracotta)' }}>
-                      = {formatMoney(Number(packingFeeConfig.default_fee) || 0)}
-                    </span>
-                  </div>
-                  <div className="form-helper" style={{ marginTop: '8px' }}>
-                    Áp dụng cho 1 bánh hoặc khi số lượng đặt không khớp với bất kỳ mốc số lượng nào bên dưới. Mặc định là 2.000đ.
-                  </div>
-                </div>
+                <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginTop: '4px' }}>
+                  Chỉ những loại bánh thêm vào danh sách này mới tính phí gói theo số lượng, các loại bánh còn lại giữ mức 2.000đ.
+                </p>
               </div>
 
-              {/* Bảng mốc số lượng */}
-              <div className="form-card" style={{ padding: '20px', borderRadius: '18px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-                  <h3 style={{ fontSize: '1.15rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                    <Layers size={18} style={{ color: 'var(--color-accent-terracotta)' }} />
-                    Bảng Mốc Phí Gói Theo Số Lượng
-                  </h3>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleAddTier}
-                    style={{ padding: '6px 14px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <Plus size={15} /> Thêm mốc
-                  </button>
-                </div>
+              {/* Add product dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  className="form-select"
+                  style={{ minWidth: '260px', padding: '8px 14px', borderColor: 'var(--color-accent-terracotta)' }}
+                  value=""
+                  onChange={(e) => {
+                    handleAddProductRule(e.target.value);
+                    e.target.value = '';
+                  }}
+                >
+                  <option value="">+ Chọn loại bánh muốn cấu hình riêng...</option>
+                  {products
+                    .filter(
+                      (p) =>
+                        !(packingFeeConfig.product_rules || []).some(
+                          (r) => r.product_id === p.id
+                        )
+                    )
+                    .map((prod) => (
+                      <option key={prod.id} value={prod.id}>
+                        {prod.name} ({prod.categories?.name || 'Khác'})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
 
-                <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '14px' }}>
-                  Nếu khách đặt số lượng bánh lớn hơn hoặc khác 1 cái, hệ thống sẽ tự động tra theo mốc số lượng này để lấy mức phí gói tương ứng.
+            {/* List of configured products */}
+            {(packingFeeConfig.product_rules || []).length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '36px 20px',
+                  background: 'var(--card-bg)',
+                  borderRadius: '14px',
+                  border: '1.5px dashed var(--card-border)',
+                }}
+              >
+                <span style={{ fontSize: '2.5rem' }}>🍪</span>
+                <h4 style={{ color: 'var(--color-primary)', marginTop: '10px', fontSize: '1.1rem' }}>
+                  Chưa có loại bánh nào được cấu hình riêng
+                </h4>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', maxWidth: '540px', margin: '6px auto 0' }}>
+                  Mọi loại bánh hiện đều áp dụng mức phí gói mặc định là <strong>2.000đ</strong> (dù số lượng bao nhiêu). Để cấu hình thêm phí theo số lượng (ví dụ cứ 5 cái thêm 10k, hoặc 20 cái là 20k), hãy chọn một loại bánh ở danh sách chọn phía trên.
                 </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {(packingFeeConfig.product_rules || []).map((rule) => {
+                  const prod = products.find((p) => p.id === rule.product_id);
+                  const prodName = prod?.name || rule.product_name || 'Bánh';
+                  const catName = prod?.categories?.name || '';
 
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="modal-items-table" style={{ margin: 0 }}>
-                    <thead>
-                      <tr style={{ background: 'var(--color-primary-light)' }}>
-                        <th style={{ width: '45px', textAlign: 'center' }}>#</th>
-                        <th style={{ textAlign: 'center' }}>Từ số lượng</th>
-                        <th style={{ textAlign: 'center' }}>Đến số lượng</th>
-                        <th style={{ textAlign: 'right' }}>Phí gói (VNĐ)</th>
-                        <th style={{ width: '60px', textAlign: 'center' }}>Xóa</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(packingFeeConfig.tiers || []).map((tier, idx) => (
-                        <tr key={idx}>
-                          <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                            {idx + 1}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <input
-                              type="number"
-                              className="form-input"
-                              min="1"
-                              style={{ width: '80px', textAlign: 'center', margin: '0 auto', padding: '6px 8px' }}
-                              value={tier.from ?? ''}
-                              onChange={(e) => handleTierChange(idx, 'from', e.target.value)}
-                            />
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <input
-                              type="number"
-                              className="form-input"
-                              min="1"
-                              placeholder="Trở lên"
-                              style={{ width: '95px', textAlign: 'center', margin: '0 auto', padding: '6px 8px' }}
-                              value={tier.to ?? ''}
-                              onChange={(e) => handleTierChange(idx, 'to', e.target.value)}
-                              title="Để trống nếu là từ số lượng này trở lên"
-                            />
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                  return (
+                    <div
+                      key={rule.product_id}
+                      style={{
+                        padding: '20px',
+                        borderRadius: '16px',
+                        border: '1.5px solid var(--card-border)',
+                        background: '#FFFFFF',
+                        boxShadow: 'var(--shadow-sm)',
+                      }}
+                    >
+                      {/* Product Header */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: '10px',
+                          borderBottom: '1px solid var(--card-border)',
+                          paddingBottom: '14px',
+                          marginBottom: '16px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '1.4rem' }}>🍪</span>
+                          <div>
+                            <span style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-primary)' }}>
+                              {prodName}
+                            </span>
+                            {catName && (
+                              <span
+                                style={{
+                                  marginLeft: '8px',
+                                  fontSize: '0.78rem',
+                                  padding: '2px 8px',
+                                  background: 'var(--color-primary-light)',
+                                  color: 'var(--color-primary)',
+                                  borderRadius: 'var(--pill-radius)',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {catName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          {/* Rule type selector */}
+                          <div style={{ display: 'inline-flex', background: 'var(--card-bg)', padding: '3px', borderRadius: '10px', border: '1px solid var(--card-border)' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateProductRule(rule.product_id, { rule_type: 'tiers' })}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '0.84rem',
+                                fontWeight: 600,
+                                borderRadius: '8px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                background: rule.rule_type !== 'step' ? 'var(--color-primary)' : 'transparent',
+                                color: rule.rule_type !== 'step' ? '#FFFFFF' : 'var(--color-text-muted)',
+                              }}
+                            >
+                              Theo mốc số lượng (Tiers)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateProductRule(rule.product_id, { rule_type: 'step' })}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '0.84rem',
+                                fontWeight: 600,
+                                borderRadius: '8px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                background: rule.rule_type === 'step' ? 'var(--color-primary)' : 'transparent',
+                                color: rule.rule_type === 'step' ? '#FFFFFF' : 'var(--color-text-muted)',
+                              }}
+                            >
+                              Cứ mỗi X cái thì thêm Y đ
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="btn-remove-item"
+                            onClick={() => handleRemoveProductRule(rule.product_id)}
+                            title="Xóa cấu hình riêng của bánh này"
+                            style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Trash2 size={15} /> Xóa
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Rule Type: Step mode */}
+                      {rule.rule_type === 'step' ? (
+                        <div>
+                          <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '12px' }}>
+                            Công thức tính: Phí gói = Phí cơ bản + (Số lượng / [Mỗi X cái]) × [Thêm Y đ]
+                          </p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Phí cơ bản:</span>
+                              <input
+                                type="number"
+                                className="form-input"
+                                style={{ width: '100px', textAlign: 'right', fontWeight: 600 }}
+                                value={rule.base_fee ?? 2000}
+                                onChange={(e) =>
+                                  handleUpdateProductRule(rule.product_id, { base_fee: e.target.value })
+                                }
+                              />
+                              <span style={{ fontSize: '0.85rem' }}>đ</span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Cứ mỗi:</span>
+                              <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                style={{ width: '70px', textAlign: 'center', fontWeight: 600 }}
+                                value={rule.step_quantity ?? 5}
+                                onChange={(e) =>
+                                  handleUpdateProductRule(rule.product_id, { step_quantity: e.target.value })
+                                }
+                              />
+                              <span style={{ fontSize: '0.85rem' }}>cái</span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Thì cộng thêm:</span>
                               <input
                                 type="number"
                                 className="form-input"
                                 step="500"
                                 min="0"
-                                style={{ width: '110px', textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}
-                                value={tier.fee ?? ''}
-                                onChange={(e) => handleTierChange(idx, 'fee', e.target.value)}
+                                style={{ width: '110px', textAlign: 'right', fontWeight: 600 }}
+                                value={rule.step_fee ?? 5000}
+                                onChange={(e) =>
+                                  handleUpdateProductRule(rule.product_id, { step_fee: e.target.value })
+                                }
                               />
-                              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>đ</span>
+                              <span style={{ fontSize: '0.85rem' }}>đ</span>
                             </div>
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              className="btn-remove-item"
-                              onClick={() => handleRemoveTier(idx)}
-                              title="Xóa mốc này"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {(packingFeeConfig.tiers || []).length === 0 && (
-                        <tr>
-                          <td colSpan="5" style={{ textAlign: 'center', padding: '24px', color: 'var(--color-text-muted)' }}>
-                            Chưa có mốc số lượng nào. Bấm <strong>"+ Thêm mốc"</strong> hoặc <strong>"Mốc mẫu"</strong> để thiết lập.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Rule Type: Tiers mode */
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)' }}>
+                              Bảng mốc phí gói cho <strong>{prodName}</strong> theo số lượng đặt:
+                            </span>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() =>
+                                  handleUpdateProductRule(rule.product_id, {
+                                    tiers: [
+                                      { from: 1, to: 4, fee: 2000 },
+                                      { from: 5, to: 9, fee: 10000 },
+                                      { from: 10, to: 19, fee: 15000 },
+                                      { from: 20, to: null, fee: 20000 },
+                                    ],
+                                  })
+                                }
+                                style={{ padding: '4px 10px', fontSize: '0.82rem' }}
+                                title="Mẫu: cứ 5 cái thêm phí (20 cái = 20k)"
+                              >
+                                Điền mốc mẫu 5-10-20 cái
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => handleAddTierToRule(rule.product_id)}
+                                style={{ padding: '4px 10px', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              >
+                                <Plus size={14} /> Thêm mốc
+                              </button>
+                            </div>
+                          </div>
 
-                <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={handleSavePackingFee}
-                    disabled={savingPackingFee}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                  >
-                    {savingPackingFee ? <RefreshCw size={16} className="spin" /> : <CheckCircle size={16} />}
-                    LƯU CẤU HÌNH PHÍ GÓI
-                  </button>
+                          <div style={{ overflowX: 'auto', marginBottom: '12px' }}>
+                            <table className="modal-items-table" style={{ margin: 0 }}>
+                              <thead>
+                                <tr style={{ background: 'var(--color-primary-light)' }}>
+                                  <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                                  <th style={{ textAlign: 'center' }}>Từ số lượng</th>
+                                  <th style={{ textAlign: 'center' }}>Đến số lượng</th>
+                                  <th style={{ textAlign: 'right' }}>Phí gói (VNĐ)</th>
+                                  <th style={{ width: '50px', textAlign: 'center' }}>Xóa</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(rule.tiers || []).map((tier, tIdx) => (
+                                  <tr key={tIdx}>
+                                    <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                                      {tIdx + 1}
+                                    </td>
+                                    <td style={{ textAlign: 'center' }}>
+                                      <input
+                                        type="number"
+                                        className="form-input"
+                                        min="1"
+                                        style={{ width: '75px', textAlign: 'center', margin: '0 auto', padding: '5px 8px' }}
+                                        value={tier.from ?? ''}
+                                        onChange={(e) => handleTierChangeInRule(rule.product_id, tIdx, 'from', e.target.value)}
+                                      />
+                                    </td>
+                                    <td style={{ textAlign: 'center' }}>
+                                      <input
+                                        type="number"
+                                        className="form-input"
+                                        min="1"
+                                        placeholder="Trở lên"
+                                        style={{ width: '90px', textAlign: 'center', margin: '0 auto', padding: '5px 8px' }}
+                                        value={tier.to ?? ''}
+                                        onChange={(e) => handleTierChangeInRule(rule.product_id, tIdx, 'to', e.target.value)}
+                                      />
+                                    </td>
+                                    <td style={{ textAlign: 'right' }}>
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                                        <input
+                                          type="number"
+                                          className="form-input"
+                                          step="500"
+                                          min="0"
+                                          style={{ width: '105px', textAlign: 'right', padding: '5px 8px', fontWeight: 600 }}
+                                          value={tier.fee ?? ''}
+                                          onChange={(e) => handleTierChangeInRule(rule.product_id, tIdx, 'fee', e.target.value)}
+                                        />
+                                        <span style={{ fontSize: '0.85rem' }}>đ</span>
+                                      </div>
+                                    </td>
+                                    <td style={{ textAlign: 'center' }}>
+                                      <button
+                                        type="button"
+                                        className="btn-remove-item"
+                                        onClick={() => handleRemoveTierFromRule(rule.product_id, tIdx)}
+                                        title="Xóa mốc này"
+                                      >
+                                        <Trash2 size={15} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Live Quick Preview for this product */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          background: 'var(--color-primary-light)',
+                          padding: '10px 16px',
+                          borderRadius: '10px',
+                          fontSize: '0.88rem',
+                          marginTop: '8px',
+                        }}
+                      >
+                        <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
+                          💡 Ví dụ tính thử cho bánh {prodName}:
+                        </span>
+                        <div style={{ display: 'flex', gap: '16px' }}>
+                          <span>1 cái: <strong>{formatMoney(calculateItemPackingFee(rule.product_id, 1, packingFeeConfig))}</strong></span>
+                          <span>5 cái: <strong>{formatMoney(calculateItemPackingFee(rule.product_id, 5, packingFeeConfig))}</strong></span>
+                          <span>20 cái: <strong style={{ color: 'var(--color-accent-terracotta)' }}>{formatMoney(calculateItemPackingFee(rule.product_id, 20, packingFeeConfig))}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Row 3: Simulator for Entire Order */}
+          <div
+            className="form-card"
+            style={{
+              padding: '24px',
+              borderRadius: '18px',
+              background: '#FFFFFF',
+              border: '1.5px solid var(--card-border)',
+            }}
+          >
+            <h3 style={{ fontSize: '1.2rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <Calculator size={20} style={{ color: 'var(--color-accent-terracotta)' }} />
+              Mô Phỏng Tính Phí Gói Cả Đơn Hàng (Order Preview)
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '18px' }}>
+              Chọn 2 loại bánh bất kỳ từ cửa hàng để kiểm tra tính toán thực tế khi khách đặt hàng:
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+              {/* Product 1 */}
+              <div style={{ padding: '14px', background: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--card-border)' }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Bánh thứ nhất:</label>
+                <select
+                  className="form-select"
+                  style={{ marginBottom: '10px' }}
+                  value={simSelectedProduct1 || (products[0]?.id ?? '')}
+                  onChange={(e) => setSimSelectedProduct1(e.target.value)}
+                >
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({(packingFeeConfig.product_rules || []).some(r => r.product_id === p.id) ? 'Có cấu hình riêng' : 'Mặc định 2k'})
+                    </option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '0.85rem' }}>Số lượng:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="form-input"
+                      style={{ width: '65px', textAlign: 'center', padding: '4px' }}
+                      value={simQty1}
+                      onChange={(e) => setSimQty1(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    />
+                    <span style={{ fontSize: '0.85rem' }}>cái</span>
+                  </div>
+                  <span style={{ fontWeight: 700, color: 'var(--color-accent-terracotta)' }}>
+                    Phí gói: {formatMoney(calculateItemPackingFee(simSelectedProduct1 || products[0]?.id, simQty1, packingFeeConfig))}
+                  </span>
+                </div>
+              </div>
+
+              {/* Product 2 */}
+              <div style={{ padding: '14px', background: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--card-border)' }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Bánh thứ hai:</label>
+                <select
+                  className="form-select"
+                  style={{ marginBottom: '10px' }}
+                  value={simSelectedProduct2 || (products[1]?.id ?? products[0]?.id ?? '')}
+                  onChange={(e) => setSimSelectedProduct2(e.target.value)}
+                >
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({(packingFeeConfig.product_rules || []).some(r => r.product_id === p.id) ? 'Có cấu hình riêng' : 'Mặc định 2k'})
+                    </option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '0.85rem' }}>Số lượng:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="form-input"
+                      style={{ width: '65px', textAlign: 'center', padding: '4px' }}
+                      value={simQty2}
+                      onChange={(e) => setSimQty2(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    />
+                    <span style={{ fontSize: '0.85rem' }}>cái</span>
+                  </div>
+                  <span style={{ fontWeight: 700, color: 'var(--color-accent-terracotta)' }}>
+                    Phí gói: {formatMoney(calculateItemPackingFee(simSelectedProduct2 || products[1]?.id || products[0]?.id, simQty2, packingFeeConfig))}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Live Simulator & Preview */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div
-                className="form-card"
-                style={{
-                  padding: '24px',
-                  borderRadius: '18px',
-                  background: '#FFFFFF',
-                  border: '1.5px solid var(--card-border)',
-                }}
-              >
-                <h3 style={{ fontSize: '1.2rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <Calculator size={20} style={{ color: 'var(--color-accent-terracotta)' }} />
-                  Mô Phỏng Tính Phí Trực Quan (Live Preview)
-                </h3>
-                <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '18px' }}>
-                  Thử thay đổi số lượng các loại bánh giả định bên dưới để kiểm tra xem hệ thống sẽ tính phí gói ra sao:
-                </p>
-
-                {/* Simulator Inputs */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '12px 16px',
-                      background: 'var(--card-bg)',
-                      borderRadius: '12px',
-                      border: '1px solid var(--card-border)',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>Loại bánh 1 (VD: Chocochip Cacao)</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                        Đơn vị tính phí gói riêng cho loại này
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="50"
-                        className="form-input"
-                        style={{ width: '65px', textAlign: 'center', padding: '6px' }}
-                        value={simQty1}
-                        onChange={(e) => setSimQty1(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      />
-                      <span style={{ fontSize: '0.85rem' }}>cái</span>
-                      <span style={{ fontWeight: 700, color: 'var(--color-accent-terracotta)', minWidth: '70px', textAlign: 'right' }}>
-                        {formatMoney(calculateItemPackingFee(simQty1, packingFeeConfig))}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '12px 16px',
-                      background: 'var(--card-bg)',
-                      borderRadius: '12px',
-                      border: '1px solid var(--card-border)',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>Loại bánh 2 (VD: Matcha Cúc-Ki)</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                        Đơn vị tính phí gói riêng cho loại này
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="50"
-                        className="form-input"
-                        style={{ width: '65px', textAlign: 'center', padding: '6px' }}
-                        value={simQty2}
-                        onChange={(e) => setSimQty2(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      />
-                      <span style={{ fontSize: '0.85rem' }}>cái</span>
-                      <span style={{ fontWeight: 700, color: 'var(--color-accent-terracotta)', minWidth: '70px', textAlign: 'right' }}>
-                        {formatMoney(calculateItemPackingFee(simQty2, packingFeeConfig))}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Calculation Summary Box */}
-                <div
-                  style={{
-                    padding: '16px 20px',
-                    borderRadius: '14px',
-                    background: 'var(--color-primary-light)',
-                    border: '1px solid var(--card-border)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.92rem' }}>
-                    <span>Phí gói Loại 1 ({simQty1} cái):</span>
-                    <span style={{ fontWeight: 600 }}>
-                      {formatMoney(calculateItemPackingFee(simQty1, packingFeeConfig))}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '0.92rem' }}>
-                    <span>Phí gói Loại 2 ({simQty2} cái):</span>
-                    <span style={{ fontWeight: 600 }}>
-                      {formatMoney(calculateItemPackingFee(simQty2, packingFeeConfig))}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      borderTop: '1px dashed var(--color-primary)',
-                      paddingTop: '10px',
-                      fontSize: '1.1rem',
-                      fontWeight: 700,
-                      color: 'var(--color-primary)',
-                    }}
-                  >
-                    <span>Tổng phí gói đơn hàng:</span>
-                    <span style={{ color: 'var(--color-accent-terracotta)' }}>
-                      {formatMoney(
-                        calculateItemPackingFee(simQty1, packingFeeConfig) +
-                          calculateItemPackingFee(simQty2, packingFeeConfig)
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Instructions Guide */}
-              <div
-                className="form-card"
-                style={{
-                  padding: '20px',
-                  borderRadius: '18px',
-                  background: '#FDFCF9',
-                  border: '1px solid var(--card-border)',
-                }}
-              >
-                <h4 style={{ fontSize: '1rem', color: 'var(--color-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <HelpCircle size={16} style={{ color: 'var(--color-accent-terracotta)' }} />
-                  Hướng Dẫn Cấu Hình
-                </h4>
-                <ul style={{ paddingLeft: '20px', fontSize: '0.88rem', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-                  <li>
-                    <strong>Mốc 1 cái:</strong> Nên đặt là 2.000đ (phí đóng gói hộp/túi cơ bản).
-                  </li>
-                  <li>
-                    <strong>Mốc nhiều cái:</strong> Ví dụ từ 2 - 3 cái: 4.000đ (hộp vừa), từ 4 - 6 cái: 6.000đ (hộp lớn).
-                  </li>
-                  <li>
-                    <strong>Mốc không giới hạn:</strong> Cột "Đến số lượng" để trống sẽ được hiểu là từ số lượng đó trở lên (ví dụ: từ 7 cái trở lên: 8.000đ).
-                  </li>
-                  <li>
-                    Sau khi chỉnh sửa, đừng quên bấm <strong>"Lưu cấu hình"</strong> để hệ thống áp dụng ngay cho khách đặt bánh nhé!
-                  </li>
-                </ul>
-              </div>
+            {/* Total Simulated Packing Fee */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 20px',
+                background: 'var(--color-primary-light)',
+                borderRadius: '12px',
+                fontSize: '1.05rem',
+                fontWeight: 700,
+                color: 'var(--color-primary)',
+              }}
+            >
+              <span>Tổng phí gói dự kiến cho đơn hàng trên:</span>
+              <span style={{ fontSize: '1.25rem', color: 'var(--color-accent-terracotta)' }}>
+                {formatMoney(
+                  calculateItemPackingFee(simSelectedProduct1 || products[0]?.id, simQty1, packingFeeConfig) +
+                    calculateItemPackingFee(simSelectedProduct2 || products[1]?.id || products[0]?.id, simQty2, packingFeeConfig)
+                )}
+              </span>
             </div>
           </div>
         </div>
