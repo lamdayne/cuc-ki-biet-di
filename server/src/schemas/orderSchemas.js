@@ -112,3 +112,18 @@ export const productSchema = z.object({
   is_available: z.boolean().default(true),
   display_order: z.number().int().default(0),
 });
+
+export const packingFeeConfigSchema = z.object({
+  amount: z.coerce.number().int().min(0, 'Phí mặc định không được âm').default(2000),
+  default_fee: z.coerce.number().int().min(0, 'Phí mặc định không được âm').default(2000),
+  tiers: z
+    .array(
+      z.object({
+        from: z.coerce.number().int().min(1, 'Số lượng từ tối thiểu là 1'),
+        to: z.coerce.number().int().min(1, 'Số lượng đến tối thiểu là 1').nullable().optional(),
+        fee: z.coerce.number().int().min(0, 'Phí gói không được âm'),
+      })
+    )
+    .default([]),
+});
+

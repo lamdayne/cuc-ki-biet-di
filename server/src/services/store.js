@@ -1,4 +1,8 @@
 import crypto from 'crypto';
+import {
+  DEFAULT_PACKING_FEE_CONFIG,
+  calculateOrderPackingFee,
+} from '../utils/packingFee.js';
 
 export const INITIAL_CATEGORIES = [
   {
@@ -64,9 +68,24 @@ export class MemoryStore {
   constructor() {
     this.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
     this.products = JSON.parse(JSON.stringify(INITIAL_PRODUCTS));
-    this.packingFee = 2000;
+    this.packingFeeConfig = JSON.parse(JSON.stringify(DEFAULT_PACKING_FEE_CONFIG));
+    this.packingFee = this.packingFeeConfig.amount;
     this.orders = [];
     this.orderItems = [];
+  }
+
+  getPackingFeeConfig() {
+    return this.packingFeeConfig;
+  }
+
+  updatePackingFeeConfig(newConfig) {
+    this.packingFeeConfig = {
+      ...this.packingFeeConfig,
+      ...newConfig,
+      amount: newConfig.default_fee ?? newConfig.amount ?? 2000,
+    };
+    this.packingFee = this.packingFeeConfig.amount;
+    return this.packingFeeConfig;
   }
 
   // Categories
@@ -205,7 +224,8 @@ export class MemoryStore {
       });
     }
 
-    const totalPrice = subtotal + this.packingFee;
+    const calculatedPackingFee = calculateOrderPackingFee(orderInput.items, this.packingFeeConfig);
+    const totalPrice = subtotal + calculatedPackingFee;
     const orderId = crypto.randomUUID();
 
     const newOrder = {
@@ -221,7 +241,7 @@ export class MemoryStore {
       ship_payment_method: orderInput.ship_payment_method,
       note: orderInput.note || null,
       subtotal,
-      packing_fee: this.packingFee,
+      packing_fee: calculatedPackingFee,
       total_price: totalPrice,
       status: 'pending',
       created_at: new Date().toISOString(),

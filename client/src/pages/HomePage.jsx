@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import CategorySection from '../components/CategorySection';
 import Cart from '../components/Cart';
@@ -6,12 +6,18 @@ import OrderForm from '../components/OrderForm';
 import OrderReviewModal from '../components/OrderReviewModal';
 import OrderSuccessModal from '../components/OrderSuccessModal';
 import { formatMoney } from '../utils/formatters';
+import {
+  DEFAULT_PACKING_FEE_CONFIG,
+  calculateOrderPackingFee,
+} from '../utils/packingFee';
+
 
 const VN_PHONE_REGEX = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 
 export default function HomePage() {
   const [categories, setCategories] = useState([]);
   const [packingFee, setPackingFee] = useState(2000);
+  const [packingFeeConfig, setPackingFeeConfig] = useState(DEFAULT_PACKING_FEE_CONFIG);
   const [availability, setAvailability] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -49,6 +55,9 @@ export default function HomePage() {
           api.getPickupAvailability(),
         ]);
         setCategories(menuRes.data.categories || []);
+        if (menuRes.data.packingFeeConfig) {
+          setPackingFeeConfig(menuRes.data.packingFeeConfig);
+        }
         setPackingFee(menuRes.data.packingFee ?? 2000);
         setAvailability(availRes.data || []);
       } catch (err) {
@@ -210,16 +219,21 @@ export default function HomePage() {
     setCreatedOrderCode(null);
   };
 
-  // Mobile calculations
-  const totalCartItemsCount = Object.values(cart).reduce(
-    (cnt, it) => cnt + it.quantity,
-    0
+  // Cart calculations
+  const cartItemList = useMemo(() => Object.values(cart), [cart]);
+  const totalCartItemsCount = useMemo(
+    () => cartItemList.reduce((cnt, it) => cnt + it.quantity, 0),
+    [cartItemList]
   );
-  const cartSubtotal = Object.values(cart).reduce(
-    (sum, it) => sum + it.product.price * it.quantity,
-    0
+  const cartSubtotal = useMemo(
+    () => cartItemList.reduce((sum, it) => sum + it.product.price * it.quantity, 0),
+    [cartItemList]
   );
-  const cartTotal = totalCartItemsCount > 0 ? cartSubtotal + packingFee : 0;
+  const dynamicPackingFee = useMemo(
+    () => (totalCartItemsCount > 0 ? calculateOrderPackingFee(cartItemList, packingFeeConfig) : 0),
+    [cartItemList, totalCartItemsCount, packingFeeConfig]
+  );
+  const cartTotal = totalCartItemsCount > 0 ? cartSubtotal + dynamicPackingFee : 0;
 
   const scrollToOrderSection = () => {
     const el = document.getElementById('dat-banh-section');
@@ -303,7 +317,8 @@ export default function HomePage() {
           <div className="sticky-cart-wrapper">
             <Cart
               cartItems={cart}
-              packingFee={packingFee}
+              packingFee={dynamicPackingFee}
+              packingFeeConfig={packingFeeConfig}
               onUpdateQuantity={handleUpdateQuantity}
               onRemoveItem={handleRemoveItem}
             />
@@ -338,7 +353,7 @@ export default function HomePage() {
         onConfirm={handleConfirmOrder}
         formData={formData}
         cartItems={cart}
-        packingFee={packingFee}
+        packingFee={dynamicPackingFee}
         isSubmitting={isSubmitting}
         submitError={submitError}
       />

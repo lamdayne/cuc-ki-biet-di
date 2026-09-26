@@ -1,8 +1,9 @@
 -- seed.sql
 -- Seed default settings
 INSERT INTO settings (key, value)
-VALUES ('packing_fee', '{"amount": 2000}')
+VALUES ('packing_fee', '{"amount": 2000, "default_fee": 2000, "tiers": [{"from": 1, "to": 1, "fee": 2000}, {"from": 2, "to": 3, "fee": 4000}, {"from": 4, "to": 6, "fee": 6000}, {"from": 7, "to": null, "fee": 8000}]}')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
 
 -- Seed categories & products
 DO $$

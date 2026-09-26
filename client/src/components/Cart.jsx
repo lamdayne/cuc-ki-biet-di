@@ -1,10 +1,12 @@
 import React from 'react';
 import { ShoppingBag, Trash2, Plus, Minus } from 'lucide-react';
 import { formatMoney } from '../utils/formatters';
+import { calculateItemPackingFee } from '../utils/packingFee';
 
 export default function Cart({
   cartItems = {},
   packingFee = 2000,
+  packingFeeConfig = {},
   onUpdateQuantity,
   onRemoveItem,
 }) {
@@ -41,12 +43,26 @@ export default function Cart({
           <div className="cart-items-list">
             {itemsList.map(({ product, quantity }) => {
               const lineTotal = product.price * quantity;
+              const itemPackingFee = calculateItemPackingFee(quantity, packingFeeConfig);
               return (
                 <div key={product.id} className="cart-item">
                   <div className="cart-item-info">
                     <div className="cart-item-name">{product.name}</div>
-                    <div className="cart-item-formula">
-                      {formatMoney(product.price)} × {quantity}
+                    <div className="cart-item-formula" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                      <span>{formatMoney(product.price)} × {quantity}</span>
+                      <span
+                        style={{
+                          fontSize: '0.76rem',
+                          color: 'var(--color-primary)',
+                          background: 'var(--color-primary-light)',
+                          padding: '1px 6px',
+                          borderRadius: 'var(--pill-radius)',
+                          fontWeight: 600,
+                        }}
+                        title={`Phí gói cho ${quantity} cái ${product.name}`}
+                      >
+                        Gói: {formatMoney(itemPackingFee)}
+                      </span>
                     </div>
                   </div>
 
@@ -95,7 +111,12 @@ export default function Cart({
               <span style={{ fontWeight: 600 }}>{formatMoney(subtotal)}</span>
             </div>
             <div className="summary-row">
-              <span>Phí gói hàng</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>Phí gói bánh</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>
+                  ({itemsList.length} loại)
+                </span>
+              </span>
               <span style={{ fontWeight: 600 }}>{formatMoney(packingFee)}</span>
             </div>
             <div className="summary-row total-row">
@@ -108,3 +129,4 @@ export default function Cart({
     </div>
   );
 }
+

@@ -155,4 +155,16 @@ export const api = {
       method: 'DELETE',
     });
   },
+
+  getPackingFeeConfig() {
+    return request('/api/admin/settings/packing-fee');
+  },
+
+  updatePackingFeeConfig(config) {
+    return request('/api/admin/settings/packing-fee', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
 };
+

@@ -10,6 +10,7 @@ import {
   updateOrderStatusSchema,
   categorySchema,
   productSchema,
+  packingFeeConfigSchema,
 } from '../schemas/orderSchemas.js';
 
 const router = Router();
@@ -205,6 +206,32 @@ router.delete('/products/:id', async (req, res, next) => {
     const { id } = req.params;
     await adminService.deleteProduct(id);
     res.json({ success: true, message: 'Đã xóa sản phẩm' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Settings - Packing Fee Config
+ */
+router.get('/settings/packing-fee', async (req, res, next) => {
+  try {
+    const config = await adminService.getPackingFeeConfig();
+    res.json({ success: true, data: config });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/settings/packing-fee', async (req, res, next) => {
+  try {
+    const validated = packingFeeConfigSchema.parse(req.body);
+    const updated = await adminService.updatePackingFeeConfig(validated);
+    res.json({
+      success: true,
+      data: updated,
+      message: 'Đã lưu cấu hình phí gói bánh thành công',
+    });
   } catch (err) {
     next(err);
   }

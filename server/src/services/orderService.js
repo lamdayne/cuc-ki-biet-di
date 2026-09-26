@@ -3,6 +3,10 @@ import { env } from '../config/env.js';
 import { generateOrderCode } from '../utils/codeGenerator.js';
 import { getUpcoming31Days, getTodayVietnamString } from '../utils/dates.js';
 import { memoryStore } from './store.js';
+import {
+  DEFAULT_PACKING_FEE_CONFIG,
+  calculateOrderPackingFee,
+} from '../utils/packingFee.js';
 
 const isSupabaseLive = Boolean(
   env.SUPABASE_URL &&
@@ -27,9 +31,11 @@ export const orderService = {
         ...cat,
         products: products.filter((p) => p.category_id === cat.id),
       }));
+      const packingConfig = memoryStore.getPackingFeeConfig();
       return {
         categories: categoriesWithProducts,
-        packingFee: memoryStore.packingFee,
+        packingFee: packingConfig.amount ?? 2000,
+        packingFeeConfig: packingConfig,
       };
     }
 
@@ -55,7 +61,8 @@ export const orderService = {
       .eq('key', 'packing_fee')
       .maybeSingle();
 
-    const packingFee = feeSetting?.value?.amount ?? 2000;
+    const packingFeeConfig = feeSetting?.value ?? DEFAULT_PACKING_FEE_CONFIG;
+    const packingFee = packingFeeConfig?.default_fee ?? packingFeeConfig?.amount ?? 2000;
 
     const categoriesWithProducts = categories.map((cat) => ({
       ...cat,
@@ -65,6 +72,7 @@ export const orderService = {
     return {
       categories: categoriesWithProducts,
       packingFee,
+      packingFeeConfig,
     };
   },
 
@@ -139,6 +147,34 @@ export const orderService = {
 
     const { data, error } = await supabase.rpc('create_preorder', rpcPayload);
     if (error) throw error;
+
+    // Recalculate packing fee dynamically based on configured tiers for each cookie item
+    try {
+      const { data: feeSetting } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'packing_fee')
+        .maybeSingle();
+      const packingConfig = feeSetting?.value ?? DEFAULT_PACKING_FEE_CONFIG;
+      const calculatedPackingFee = calculateOrderPackingFee(orderInput.items, packingConfig);
+
+      if (data?.order_id) {
+        const finalTotalPrice = Number(data.subtotal) + calculatedPackingFee;
+        await supabase
+          .from('orders')
+          .update({
+            packing_fee: calculatedPackingFee,
+            total_price: finalTotalPrice,
+          })
+          .eq('id', data.order_id);
+
+        data.packing_fee = calculatedPackingFee;
+        data.total_price = finalTotalPrice;
+      }
+    } catch (updateErr) {
+      console.error('Failed to sync dynamic packing fee on order:', updateErr);
+    }
+
     return data;
   },
 

@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { supabase } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { memoryStore } from './store.js';
+import { DEFAULT_PACKING_FEE_CONFIG } from '../utils/packingFee.js';
 
 const isSupabaseLive = Boolean(
   env.SUPABASE_URL &&
@@ -304,5 +305,44 @@ export const adminService = {
     const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) throw error;
     return { success: true };
+  },
+
+  async getPackingFeeConfig() {
+    if (!isSupabaseLive) {
+      return memoryStore.getPackingFeeConfig();
+    }
+
+    const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'packing_fee')
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.value ?? DEFAULT_PACKING_FEE_CONFIG;
+  },
+
+  async updatePackingFeeConfig(config) {
+    const payload = {
+      ...config,
+      amount: config.default_fee ?? config.amount ?? 2000,
+    };
+
+    if (!isSupabaseLive) {
+      return memoryStore.updatePackingFeeConfig(payload);
+    }
+
+    const { data, error } = await supabase
+      .from('settings')
+      .upsert({
+        key: 'packing_fee',
+        value: payload,
+        updated_at: new Date().toISOString(),
+      })
+      .select('value')
+      .single();
+
+    if (error) throw error;
+    return data?.value ?? payload;
   },
 };
