@@ -11,6 +11,7 @@ export default function OrderReviewModal({
   packingFee = 2000,
   isSubmitting = false,
   submitError = null,
+  isOrderingOpen = true,
 }) {
   if (!isOpen) return null;
 
@@ -146,6 +147,25 @@ export default function OrderReviewModal({
           </div>
         </div>
 
+        {!isOrderingOpen && (
+          <div
+            style={{
+              padding: '12px 16px',
+              backgroundColor: 'var(--color-primary-light)',
+              color: 'var(--color-text-main)',
+              borderRadius: '14px',
+              marginTop: '16px',
+              fontSize: '0.9rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <AlertCircle size={18} color="var(--color-accent-terracotta)" />
+            <span>Tiệm CÚC-KI chỉ nhận đặt bánh từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm ngưng nhận đơn mới.</span>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="modal-actions">
           <button
@@ -158,12 +178,14 @@ export default function OrderReviewModal({
           </button>
           <button
             type="button"
-            className="btn-primary"
+            className={`btn-primary ${!isOrderingOpen ? 'btn-closed' : ''}`}
             onClick={onConfirm}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !isOrderingOpen}
           >
             {isSubmitting ? (
               'ĐANG XỬ LÝ...'
+            ) : !isOrderingOpen ? (
+              'TẠM ĐÓNG ĐẶT ĐƠN (T7 & CN)'
             ) : (
               <>
                 <CheckCircle size={18} />

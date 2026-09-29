@@ -19,6 +19,8 @@ export default function HomePage() {
   const [packingFee, setPackingFee] = useState(2000);
   const [packingFeeConfig, setPackingFeeConfig] = useState(DEFAULT_PACKING_FEE_CONFIG);
   const [availability, setAvailability] = useState([]);
+  const [isOrderingOpen, setIsOrderingOpen] = useState(true);
+  const [orderingSchedule, setOrderingSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -60,6 +62,10 @@ export default function HomePage() {
         }
         setPackingFee(menuRes.data.packingFee ?? 2000);
         setAvailability(availRes.data || []);
+        if (menuRes.data.isOrderingOpen !== undefined) {
+          setIsOrderingOpen(menuRes.data.isOrderingOpen);
+          setOrderingSchedule(menuRes.data.orderingSchedule);
+        }
       } catch (err) {
         console.error('Lỗi tải dữ liệu:', err);
         setError('Không thể tải thực đơn tiệm bánh. Vui lòng thử tải lại trang.');
@@ -141,6 +147,11 @@ export default function HomePage() {
 
     if (!formData.pickup_date) {
       errs.pickup_date = 'Vui lòng chọn ngày nhận bánh';
+    } else {
+      const selectedDay = availability.find((d) => d.dateStr === formData.pickup_date);
+      if (selectedDay && (selectedDay.weekdayName === 'Thứ Bảy' || selectedDay.weekdayName === 'Chủ Nhật')) {
+        errs.pickup_date = 'Tiệm chỉ nhận giao bánh từ Thứ 2 đến Thứ 6 (không nhận Thứ 7, Chủ Nhật)';
+      }
     }
 
     if (!formData.ship_payment_method) {
@@ -153,6 +164,12 @@ export default function HomePage() {
 
   const handleOpenReview = (e) => {
     e.preventDefault();
+    if (!isOrderingOpen) {
+      alert(
+        'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm đóng cổng đặt đơn bạn nhé!'
+      );
+      return;
+    }
     if (Object.keys(cart).length === 0) {
       alert('Giỏ hàng đang trống. Bạn hãy chọn bánh từ menu phía trên nhé!');
       return;
@@ -164,6 +181,12 @@ export default function HomePage() {
   };
 
   const handleConfirmOrder = async () => {
+    if (!isOrderingOpen) {
+      setSubmitError(
+        'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm ngưng nhận đơn mới.'
+      );
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -274,14 +297,37 @@ export default function HomePage() {
   return (
     <main className="container" style={{ padding: '40px 20px' }}>
       {/* Intro hero banner */}
-      <div style={{ textAlign: 'center', marginBottom: '44px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '36px' }}>
         <h1 style={{ fontSize: '2.5rem', marginBottom: '10px' }}>
           Tiệm Bánh Quy Handmade CÚC-KI BIẾT ĐI
         </h1>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: '1.05rem', maxWidth: '650px', margin: '0 auto' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '1.05rem', maxWidth: '650px', margin: '0 auto 16px' }}>
           Bánh quy tươi mới nướng mỗi ngày với nguyên liệu cao cấp, ít ngọt, chuẩn vị gia đình.
           Để đảm bảo chất lượng ngon nhất, Cúc-Ki chỉ nhận <strong>tối đa 4 đơn/ngày</strong>!
         </p>
+
+        {/* Schedule status banner or badge */}
+        {!isOrderingOpen ? (
+          <div className="store-status-banner store-closed-weekend">
+            <div className="status-badge closed">
+              <span className="status-dot"></span>
+              TẠM ĐÓNG CỔNG ĐẶT ĐƠN (CUỐI TUẦN)
+            </div>
+            <div className="status-banner-content">
+              <div className="status-banner-title">
+                ⏰ Tiệm chỉ nhận đặt hàng từ <strong>Thứ 2 đến Thứ 6</strong>
+              </div>
+              <p className="status-banner-desc">
+                Hôm nay là {orderingSchedule?.todayWeekday || 'cuối tuần'}, CÚC-KI tạm nghỉ ngơi và nướng những mẻ bánh mới thơm phức. Bạn vẫn có thể xem trước thực đơn và quay lại đặt đơn vào Thứ 2 nhé! ❤️
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="store-schedule-badge open">
+            <span className="status-dot pulse"></span>
+            <span>Tiệm đang mở nhận đơn: <strong>Thứ 2 – Thứ 6</strong> (Tối đa 4 đơn/ngày)</span>
+          </div>
+        )}
       </div>
 
       {/* Menu Categories */}
@@ -310,6 +356,8 @@ export default function HomePage() {
               onSubmit={handleOpenReview}
               isSubmitting={isSubmitting}
               hasItems={totalCartItemsCount > 0}
+              isOrderingOpen={isOrderingOpen}
+              orderingSchedule={orderingSchedule}
             />
           </div>
 
@@ -337,11 +385,11 @@ export default function HomePage() {
           </div>
           <button
             type="button"
-            className="btn-primary"
+            className={`btn-primary ${!isOrderingOpen ? 'btn-closed' : ''}`}
             onClick={scrollToOrderSection}
             style={{ padding: '10px 20px', fontSize: '0.92rem' }}
           >
-            ĐẶT BÁNH NGAY
+            {!isOrderingOpen ? 'ĐÓNG ĐẶT ĐƠN (T7-CN)' : 'ĐẶT BÁNH NGAY'}
           </button>
         </aside>
       )}
@@ -356,6 +404,7 @@ export default function HomePage() {
         packingFee={dynamicPackingFee}
         isSubmitting={isSubmitting}
         submitError={submitError}
+        isOrderingOpen={isOrderingOpen}
       />
 
       {/* Success Modal */}

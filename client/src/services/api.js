@@ -42,6 +42,10 @@ export const api = {
     return request('/api/pickup-availability');
   },
 
+  getStoreStatus() {
+    return request('/api/store-status');
+  },
+
   createOrder(payload) {
     return request('/api/orders', {
       method: 'POST',

@@ -37,7 +37,7 @@ export const createOrderSchema = z
       .string({ required_error: 'Vui lòng chọn ngày nhận bánh' })
       .refine(
         (val) => isWithinValidPickupWindow(val),
-        'Ngày nhận bánh phải nằm trong khoảng từ hôm nay đến 30 ngày tới'
+        'Ngày nhận bánh chỉ áp dụng từ Thứ 2 đến Thứ 6 (tiệm không giao nhận bánh vào Thứ 7 và Chủ Nhật)'
       ),
 
     ship_payment_method: z.enum(

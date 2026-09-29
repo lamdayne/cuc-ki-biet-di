@@ -1,7 +1,12 @@
 import { supabase } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { generateOrderCode } from '../utils/codeGenerator.js';
-import { getUpcoming31Days, getTodayVietnamString } from '../utils/dates.js';
+import {
+  getUpcoming31Days,
+  getTodayVietnamString,
+  isOrderingAllowed,
+  getOrderingScheduleInfo,
+} from '../utils/dates.js';
 import { memoryStore } from './store.js';
 import {
   DEFAULT_PACKING_FEE_CONFIG,
@@ -23,7 +28,13 @@ function maskPhoneNumber(phone) {
 }
 
 export const orderService = {
+  getOrderingSchedule(referenceDate = new Date()) {
+    return getOrderingScheduleInfo(referenceDate);
+  },
+
   async getPublicMenu() {
+    const orderingSchedule = getOrderingScheduleInfo();
+
     if (!isSupabaseLive) {
       const categories = memoryStore.getCategories(true);
       const products = memoryStore.getProducts(null, true);
@@ -36,6 +47,8 @@ export const orderService = {
         categories: categoriesWithProducts,
         packingFee: packingConfig.amount ?? 2000,
         packingFeeConfig: packingConfig,
+        isOrderingOpen: orderingSchedule.isOpen,
+        orderingSchedule,
       };
     }
 
@@ -73,6 +86,8 @@ export const orderService = {
       categories: categoriesWithProducts,
       packingFee,
       packingFeeConfig,
+      isOrderingOpen: orderingSchedule.isOpen,
+      orderingSchedule,
     };
   },
 
@@ -121,7 +136,14 @@ export const orderService = {
     });
   },
 
-  async createOrder(orderInput) {
+  async createOrder(orderInput, referenceDate = new Date()) {
+    if (!isOrderingAllowed(referenceDate)) {
+      const err = new Error('ORDER_WEEKEND_CLOSED');
+      err.status = 400;
+      err.userMessage = 'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm ngưng nhận đơn mới.';
+      throw err;
+    }
+
     const code = generateOrderCode(new Date(orderInput.pickup_date));
 
     if (!isSupabaseLive) {

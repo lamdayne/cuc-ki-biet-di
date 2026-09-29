@@ -40,6 +40,14 @@ export function errorHandler(err, req, res, next) {
     });
   }
 
+  if (message.includes('ORDER_WEEKEND_CLOSED')) {
+    return res.status(400).json({
+      success: false,
+      code: 'ORDER_WEEKEND_CLOSED',
+      message: 'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm ngưng nhận đơn mới.',
+    });
+  }
+
   // 3. Fallback General Error
   console.error('[SERVER ERROR]:', err);
   return res.status(err.status || 500).json({

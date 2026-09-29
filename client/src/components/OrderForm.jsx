@@ -15,14 +15,18 @@ export default function OrderForm({
   onSubmit,
   isSubmitting = false,
   hasItems = false,
+  isOrderingOpen = true,
+  orderingSchedule = null,
 }) {
-  // Group 31 pickup days by monthGroup (e.g. "Tháng 9/2026")
-  const groupedDays = availability.reduce((acc, item) => {
-    const group = item.monthGroup || 'Các ngày sắp tới';
-    if (!acc[group]) acc[group] = [];
-    acc[group].push(item);
-    return acc;
-  }, {});
+  // Group 31 pickup days by monthGroup (Thứ 2 đến Thứ 6, không có Thứ 7 & Chủ Nhật)
+  const groupedDays = availability
+    .filter((item) => item.weekdayName !== 'Thứ Bảy' && item.weekdayName !== 'Chủ Nhật')
+    .reduce((acc, item) => {
+      const group = item.monthGroup || 'Các ngày sắp tới';
+      if (!acc[group]) acc[group] = [];
+      acc[group].push(item);
+      return acc;
+    }, {});
 
   return (
     <form className="form-card" onSubmit={onSubmit} noValidate>
@@ -30,6 +34,18 @@ export default function OrderForm({
         <User size={22} />
         THÔNG TIN KHÁCH HÀNG
       </h3>
+
+      {!isOrderingOpen && (
+        <div className="form-closed-notice">
+          <div className="form-closed-icon">⏰</div>
+          <div className="form-closed-content">
+            <strong>Cổng đặt đơn đang tạm đóng cuối tuần</strong>
+            <p>
+              Tiệm CÚC-KI chỉ nhận đặt hàng từ <strong>Thứ 2 đến Thứ 6</strong>. Thứ 7 và Chủ Nhật tiệm tạm đóng form để chuẩn bị nguyên liệu và nướng mẻ bánh mới. Hẹn gặp bạn vào Thứ 2 nhé! ❤️
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 1. Họ và tên * */}
       <div className="form-group">
@@ -188,7 +204,9 @@ export default function OrderForm({
             </optgroup>
           ))}
         </select>
-        <div className="form-helper">CÚC-KI nhận tối đa 4 đơn cho mỗi ngày.</div>
+        <div className="form-helper">
+          CÚC-KI nhận tối đa 4 đơn/ngày (chỉ giao nhận bánh từ Thứ 2 đến Thứ 6, nghỉ Thứ 7 & Chủ Nhật).
+        </div>
         {errors.pickup_date && (
           <div className="form-error">{errors.pickup_date}</div>
         )}
@@ -242,15 +260,33 @@ export default function OrderForm({
       {/* 9. Button "XEM LẠI THÔNG TIN ĐƠN" */}
       <button
         type="submit"
-        className="btn-primary"
+        className={`btn-primary ${!isOrderingOpen ? 'btn-closed' : ''}`}
         style={{ width: '100%', marginTop: '12px', padding: '14px 28px' }}
-        disabled={isSubmitting || !hasItems}
-        title={!hasItems ? 'Vui lòng chọn ít nhất 1 loại bánh' : 'Xem lại thông tin đơn'}
+        disabled={!isOrderingOpen || isSubmitting || !hasItems}
+        title={
+          !isOrderingOpen
+            ? 'Tiệm chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6'
+            : !hasItems
+            ? 'Vui lòng chọn ít nhất 1 loại bánh'
+            : 'Xem lại thông tin đơn'
+        }
       >
-        XEM LẠI THÔNG TIN ĐƠN
+        {!isOrderingOpen ? 'TẠM ĐÓNG CỔNG ĐẶT ĐƠN (T7 & CN)' : 'XEM LẠI THÔNG TIN ĐƠN'}
       </button>
 
-      {!hasItems && (
+      {!isOrderingOpen ? (
+        <div
+          className="form-helper"
+          style={{
+            textAlign: 'center',
+            marginTop: '10px',
+            color: 'var(--color-accent-terracotta)',
+            fontWeight: 500,
+          }}
+        >
+          * Cổng nhận đặt đơn sẽ tự động mở lại vào Thứ 2 tuần tới.
+        </div>
+      ) : !hasItems && (
         <div className="form-helper" style={{ textAlign: 'center', marginTop: '10px' }}>
           * Hãy bấm dấu (+) tại menu phía trên để chọn bánh vào giỏ nhé.
         </div>

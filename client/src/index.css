@@ -1396,3 +1396,165 @@ input, select, textarea {
     font-size: 1.4rem;
   }
 }
+
+/* ==========================================================================
+   Store Schedule & Weekend Ordering Closed Styles
+   ========================================================================== */
+
+.store-schedule-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--card-border);
+  padding: 8px 18px;
+  border-radius: var(--pill-radius);
+  font-size: 0.92rem;
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+.store-schedule-badge.open:hover {
+  background: rgba(255, 255, 255, 0.95);
+  transform: translateY(-1px);
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--color-success);
+}
+
+.status-dot.pulse {
+  animation: statusPulse 2s infinite ease-in-out;
+}
+
+@keyframes statusPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(46, 125, 50, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0);
+  }
+}
+
+/* Weekend Store Closed Banner */
+.store-status-banner.store-closed-weekend {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #FFF4E8 0%, #FEE8D4 100%);
+  border: 1.5px solid #F3C9A6;
+  border-radius: 20px;
+  padding: 20px 24px;
+  max-width: 680px;
+  margin: 16px auto 0;
+  text-align: center;
+  box-shadow: 0 4px 18px rgba(122, 82, 56, 0.08);
+  animation: fadeInDown 0.4s ease;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.status-badge.closed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-accent-terracotta);
+  color: #FFFFFF;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding: 4px 12px;
+  border-radius: var(--pill-radius);
+  box-shadow: 0 2px 6px rgba(216, 107, 67, 0.25);
+}
+
+.status-badge.closed .status-dot {
+  background: #FFFFFF;
+  width: 6px;
+  height: 6px;
+}
+
+.status-banner-title {
+  font-family: var(--font-heading);
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 4px;
+}
+
+.status-banner-desc {
+  font-size: 0.94rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Form notice inside OrderForm */
+.form-closed-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #FFF8F1;
+  border: 1.5px solid #F4D3BA;
+  border-radius: 16px;
+  padding: 14px 18px;
+  margin-bottom: 22px;
+  color: var(--color-text-main);
+  box-shadow: 0 2px 8px rgba(122, 82, 56, 0.04);
+}
+
+.form-closed-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.form-closed-content strong {
+  display: block;
+  font-family: var(--font-heading);
+  color: var(--color-primary);
+  font-size: 1.02rem;
+  margin-bottom: 4px;
+}
+
+.form-closed-content p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+/* Button closed state */
+.btn-closed {
+  background: #BFAEA4 !important;
+  color: #FFFFFF !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  opacity: 0.85 !important;
+  transform: none !important;
+}
+
+.btn-closed:hover {
+  background: #BFAEA4 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}

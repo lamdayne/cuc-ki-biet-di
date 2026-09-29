@@ -32,6 +32,15 @@ router.get('/pickup-availability', async (req, res, next) => {
 });
 
 /**
+ * GET /api/store-status
+ * Current ordering availability and schedule
+ */
+router.get('/store-status', (req, res) => {
+  const schedule = orderService.getOrderingSchedule();
+  res.json({ success: true, data: schedule });
+});
+
+/**
  * POST /api/orders
  * Create a new preorder with server-side validation and atomic check
  */
