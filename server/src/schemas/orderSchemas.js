@@ -34,10 +34,10 @@ export const createOrderSchema = z
       .min(5, 'Địa chỉ nhận bánh cần chi tiết hơn (tối thiểu 5 ký tự)'),
 
     pickup_date: z
-      .string({ required_error: 'Vui lòng chọn ngày nhận bánh' })
+      .string({ required_error: 'Vui lòng chọn ngày nướng bánh' })
       .refine(
         (val) => isWithinValidPickupWindow(val),
-        'Ngày nhận bánh không hợp lệ hoặc nằm ngoài khoảng thời gian nhận đặt trước.'
+        'Ngày nướng bánh không hợp lệ hoặc nằm ngoài khoảng thời gian nhận đặt trước.'
       ),
 
     ship_payment_method: z.enum(
@@ -157,7 +157,7 @@ export const scheduleSettingsSchema = z.object({
 
 export const singleDayConfigSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày phải là YYYY-MM-DD'),
-  is_open: z.boolean(),
+  is_open: z.boolean().optional(),
   max_orders: z.coerce.number().int().min(0, 'Số đơn tối đa không được âm').optional(),
   note: z.string().trim().max(200, 'Ghi chú tối đa 200 ký tự').optional().nullable(),
 });

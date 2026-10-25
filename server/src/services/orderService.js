@@ -179,22 +179,15 @@ export const orderService = {
   async createOrder(orderInput, referenceDate = new Date()) {
     const dailySettings = await this.getDailyOrderSettings();
 
-    if (!isOrderingAllowed(referenceDate, dailySettings)) {
-      const err = new Error('ORDER_WEEKEND_CLOSED');
-      err.status = 400;
-      err.userMessage = 'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm ngưng nhận đơn mới.';
-      throw err;
-    }
-
-    // Validate that pickup date is OPEN and not beyond max quota
+    // Validate that baking date is OPEN and not beyond max quota
     const resolved = resolveDateConfig(orderInput.pickup_date, dailySettings);
     if (!resolved.isOpen) {
       const err = new Error(
-        `DAY_CLOSED: Tiệm tạm ngưng nhận đơn cho ngày ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`
+        `DAY_CLOSED: Tiệm tạm ngưng nhận đơn cho ngày nướng ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`
       );
       err.status = 400;
       err.code = 'DAY_CLOSED';
-      err.userMessage = `Tiệm tạm ngưng nhận đơn cho ngày ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`;
+      err.userMessage = `Tiệm tạm ngưng nhận đơn cho ngày nướng ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`;
       throw err;
     }
 
@@ -215,11 +208,11 @@ export const orderService = {
 
     if (resolved.maxOrders > 0 && currentCount >= resolved.maxOrders) {
       const err = new Error(
-        `DAY_CAPACITY_FULL: Ngày nhận ${orderInput.pickup_date} đã đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn ngày khác.`
+        `DAY_CAPACITY_FULL: Ngày nướng ${orderInput.pickup_date} đã đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn ngày khác.`
       );
       err.status = 409;
       err.code = 'DAY_CAPACITY_FULL';
-      err.userMessage = `Ngày nhận bánh này đã nhận đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn một ngày khác.`;
+      err.userMessage = `Ngày nướng bánh này đã nhận đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn một ngày khác.`;
       throw err;
     }
 

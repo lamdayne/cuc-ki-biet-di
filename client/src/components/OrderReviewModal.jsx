@@ -91,7 +91,7 @@ export default function OrderReviewModal({
             <span className="info-value">{formData.delivery_address}</span>
           </div>
           <div className="info-row">
-            <span className="info-label">Ngày nhận bánh:</span>
+            <span className="info-label">Ngày nướng bánh:</span>
             <span className="info-value" style={{ color: 'var(--color-primary)' }}>
               {formattedPickupDate}
             </span>

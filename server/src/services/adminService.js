@@ -493,15 +493,16 @@ export const adminService = {
   async updateDayConfig(date, config) {
     const currentSettings = await this.getDailyOrderSettings();
     const updatedDayConfigs = { ...(currentSettings.day_configs || {}) };
+    const existing = updatedDayConfigs[date] || {};
 
     updatedDayConfigs[date] = {
-      ...(updatedDayConfigs[date] || {}),
-      is_open: typeof config.is_open === 'boolean' ? config.is_open : true,
+      ...existing,
+      is_open: typeof config.is_open === 'boolean' ? config.is_open : (existing.is_open ?? true),
       max_orders:
         config.max_orders !== undefined
           ? Number(config.max_orders)
-          : (updatedDayConfigs[date]?.max_orders ?? currentSettings.default_max_orders ?? 4),
-      note: config.note !== undefined ? config.note : (updatedDayConfigs[date]?.note || ''),
+          : (existing.max_orders ?? currentSettings.default_max_orders ?? 4),
+      note: config.note !== undefined ? config.note : (existing.note || ''),
     };
 
     const newSettings = {

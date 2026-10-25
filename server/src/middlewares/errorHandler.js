@@ -2,9 +2,10 @@ import { ZodError } from 'zod';
 
 export function errorHandler(err, req, res, next) {
   // 1. Zod Validation Error
-  if (err instanceof ZodError) {
-    const errorDetails = err.errors.map((e) => ({
-      field: e.path.join('.'),
+  if (err instanceof ZodError || err?.name === 'ZodError') {
+    const rawIssues = err.issues || err.errors || [];
+    const errorDetails = rawIssues.map((e) => ({
+      field: Array.isArray(e.path) ? e.path.join('.') : '',
       message: e.message,
     }));
     return res.status(400).json({
@@ -21,7 +22,7 @@ export function errorHandler(err, req, res, next) {
     return res.status(409).json({
       success: false,
       code: 'DAY_CAPACITY_FULL',
-      message: customMsg || 'Ngày nhận bánh này đã nhận đủ số lượng đơn hàng. Vui lòng chọn một ngày khác.',
+      message: customMsg || 'Ngày nướng bánh này đã nhận đủ số lượng đơn hàng. Vui lòng chọn một ngày khác.',
     });
   }
 
@@ -30,7 +31,7 @@ export function errorHandler(err, req, res, next) {
     return res.status(400).json({
       success: false,
       code: 'DAY_CLOSED',
-      message: customMsg || 'Ngày nhận bánh này tiệm tạm ngưng nhận đơn. Vui lòng chọn một ngày khác.',
+      message: customMsg || 'Ngày nướng bánh này tiệm tạm ngưng nhận đơn. Vui lòng chọn một ngày khác.',
     });
   }
 

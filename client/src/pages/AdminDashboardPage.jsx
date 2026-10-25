@@ -225,7 +225,11 @@ export default function AdminDashboardPage() {
     });
 
     try {
-      await api.updateDayConfig(dateStr, { is_open: newIsOpen });
+      await api.updateDayConfig(dateStr, {
+        is_open: newIsOpen,
+        max_orders: currentDay.maxOrders,
+        note: currentDay.note || '',
+      });
       showNotify(
         newIsOpen
           ? `🟢 Đã MỞ nhận đơn ngày ${currentDay.displayDate}`
@@ -261,7 +265,11 @@ export default function AdminDashboardPage() {
     });
 
     try {
-      await api.updateDayConfig(dateStr, { max_orders: quota });
+      await api.updateDayConfig(dateStr, {
+        is_open: currentDay.isOpen,
+        max_orders: quota,
+        note: currentDay.note || '',
+      });
       showNotify(`🎯 Đã đổi giới hạn ngày ${currentDay.displayDate}: ${quota} đơn`);
     } catch (err) {
       showNotify(`Lỗi cập nhật giới hạn: ${err.message}`, true);
@@ -351,7 +359,12 @@ export default function AdminDashboardPage() {
 
   const handleSaveNote = async (dateStr, note) => {
     try {
-      await api.updateDayConfig(dateStr, { note: (note || '').trim() });
+      const currentDay = scheduleData.days.find((d) => d.dateStr === dateStr);
+      await api.updateDayConfig(dateStr, {
+        is_open: currentDay ? currentDay.isOpen : true,
+        max_orders: currentDay?.maxOrders,
+        note: (note || '').trim(),
+      });
       setScheduleData((prev) => ({
         ...prev,
         days: prev.days.map((d) => (d.dateStr === dateStr ? { ...d, note: (note || '').trim() } : d)),
@@ -875,7 +888,7 @@ export default function AdminDashboardPage() {
             style={{ padding: '20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}
           >
             <div style={{ flex: '1', minWidth: '180px' }}>
-              <label className="form-label">Lọc theo ngày nhận bánh:</label>
+              <label className="form-label">Lọc theo ngày nướng bánh:</label>
               <input
                 type="date"
                 className="form-input"
@@ -971,11 +984,11 @@ export default function AdminDashboardPage() {
                       <div className="admin-order-actions-group">
                         <div
                           className={`order-day-badge ${isDayFull ? 'day-full' : ''}`}
-                          title="Ngày nhận bánh và số lượng đơn trong ngày"
+                          title="Ngày nướng bánh và số lượng đơn trong ngày"
                         >
                           <Calendar size={16} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
                           <span className="order-day-label">
-                            Nhận: <strong>{displayPickupDate}</strong>
+                            Nướng: <strong>{displayPickupDate}</strong>
                           </span>
                           <span className={`order-day-pill ${isDayFull ? 'pill-full' : 'pill-available'}`}>
                             {countForDay}/{maxForDay} đơn
@@ -1552,7 +1565,7 @@ export default function AdminDashboardPage() {
                 <table className="schedule-table">
                   <thead>
                     <tr>
-                      <th>Ngày nhận bánh</th>
+                      <th>Ngày nướng bánh</th>
                       <th>Trạng thái nhận đơn</th>
                       <th style={{ width: '190px' }}>Giới hạn đơn tối đa</th>
                       <th style={{ width: '220px' }}>Tiến độ đơn đã đặt</th>

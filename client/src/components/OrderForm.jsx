@@ -174,10 +174,10 @@ export default function OrderForm({
         )}
       </div>
 
-      {/* 6. Chọn ngày nhận bánh * (REAL native select with optgroup per month) */}
+      {/* 6. Chọn ngày nướng bánh * (REAL native select with optgroup per month) */}
       <div className="form-group">
         <label className="form-label" htmlFor="pickup_date">
-          Chọn ngày nhận bánh <span className="required-star">*</span>
+          Chọn ngày nướng bánh <span className="required-star">*</span>
         </label>
         <select
           id="pickup_date"
@@ -188,7 +188,7 @@ export default function OrderForm({
           required
         >
           <option value="" disabled>
-            -- Chọn ngày nhận bánh --
+            -- Chọn ngày nướng bánh --
           </option>
           {Object.entries(groupedDays).map(([monthTitle, daysInMonth]) => (
             <optgroup key={monthTitle} label={monthTitle}>
@@ -205,7 +205,7 @@ export default function OrderForm({
           ))}
         </select>
         <div className="form-helper">
-          CÚC-KI giới hạn số lượng đơn nhận mỗi ngày để đảm bảo bánh luôn tươi mới và chất lượng nhất.
+          CÚC-KI nướng bánh từ Thứ 2 đến Thứ 6. Giới hạn số lượng đơn mỗi ngày để bánh luôn tươi ngon chuẩn vị nhất.
         </div>
         {errors.pickup_date && (
           <div className="form-error">{errors.pickup_date}</div>
@@ -260,33 +260,19 @@ export default function OrderForm({
       {/* 9. Button "XEM LẠI THÔNG TIN ĐƠN" */}
       <button
         type="submit"
-        className={`btn-primary ${!isOrderingOpen ? 'btn-closed' : ''}`}
+        className="btn-primary"
         style={{ width: '100%', marginTop: '12px', padding: '14px 28px' }}
-        disabled={!isOrderingOpen || isSubmitting || !hasItems}
+        disabled={isSubmitting || !hasItems}
         title={
-          !isOrderingOpen
-            ? 'Tiệm chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6'
-            : !hasItems
+          !hasItems
             ? 'Vui lòng chọn ít nhất 1 loại bánh'
             : 'Xem lại thông tin đơn'
         }
       >
-        {!isOrderingOpen ? 'TẠM ĐÓNG CỔNG ĐẶT ĐƠN (T7 & CN)' : 'XEM LẠI THÔNG TIN ĐƠN'}
+        XEM LẠI THÔNG TIN ĐƠN
       </button>
 
-      {!isOrderingOpen ? (
-        <div
-          className="form-helper"
-          style={{
-            textAlign: 'center',
-            marginTop: '10px',
-            color: 'var(--color-accent-terracotta)',
-            fontWeight: 500,
-          }}
-        >
-          * Cổng nhận đặt đơn sẽ tự động mở lại vào Thứ 2 tuần tới.
-        </div>
-      ) : !hasItems && (
+      {!hasItems && (
         <div className="form-helper" style={{ textAlign: 'center', marginTop: '10px' }}>
           * Hãy bấm dấu (+) tại menu phía trên để chọn bánh vào giỏ nhé.
         </div>

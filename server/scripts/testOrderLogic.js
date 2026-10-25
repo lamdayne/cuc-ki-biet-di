@@ -174,55 +174,19 @@ const o5 = manager.createOrder(targetDate);
 assert.strictEqual(o5.id, 5);
 console.log('   ✅ Đạt: Chặn đơn thứ 5 trong ngày và giải phóng slot khi đơn trước đó bị hủy.\n');
 
-// 6. Kiểm tra quy định chỉ nhận đặt hàng Thứ 2 đến Thứ 6 (đóng cổng Thứ 7 & Chủ Nhật)
-console.log('6. Kiểm tra quy định chỉ nhận đặt hàng Thứ 2 đến Thứ 6 (đóng cổng Thứ 7 & CN):');
-// Test Thứ 2 (2026-09-28)
-assert.strictEqual(isOrderingAllowed(new Date('2026-09-28T09:00:00+07:00')), true, 'Thứ 2 phải được đặt hàng');
-assert.strictEqual(isWeekendInVietnam(new Date('2026-09-28T09:00:00+07:00')), false);
-// Test Thứ 3 (2026-09-29)
-assert.strictEqual(isOrderingAllowed(new Date('2026-09-29T10:00:00+07:00')), true, 'Thứ 3 phải được đặt hàng');
-// Test Thứ 4 (2026-09-30)
-assert.strictEqual(isOrderingAllowed(new Date('2026-09-30T11:00:00+07:00')), true, 'Thứ 4 phải được đặt hàng');
-// Test Thứ 5 (2026-10-01)
-assert.strictEqual(isOrderingAllowed(new Date('2026-10-01T14:00:00+07:00')), true, 'Thứ 5 phải được đặt hàng');
-// Test Thứ 6 (2026-10-02)
-assert.strictEqual(isOrderingAllowed(new Date('2026-10-02T16:00:00+07:00')), true, 'Thứ 6 phải được đặt hàng');
-assert.strictEqual(isWeekendInVietnam(new Date('2026-10-02T16:00:00+07:00')), false);
-// Test Thứ 7 (2026-10-03)
-assert.strictEqual(isOrderingAllowed(new Date('2026-10-03T10:00:00+07:00')), false, 'Thứ 7 phải bị chặn đặt hàng');
-assert.strictEqual(isWeekendInVietnam(new Date('2026-10-03T10:00:00+07:00')), true);
-// Test Chủ Nhật (2026-10-04)
-assert.strictEqual(isOrderingAllowed(new Date('2026-10-04T12:00:00+07:00')), false, 'Chủ Nhật phải bị chặn đặt hàng');
-assert.strictEqual(isWeekendInVietnam(new Date('2026-10-04T12:00:00+07:00')), true);
+// 6. Kiểm tra quy định cho phép đặt hàng 24/7 (kể cả Thứ 7 & CN), chỉ nướng bánh Thứ 2 đến Thứ 6
+console.log('6. Kiểm tra quy định cho phép đặt hàng 24/7 (kể cả Thứ 7 & CN), chỉ nướng bánh Thứ 2 đến Thứ 6:');
+assert.strictEqual(isOrderingAllowed(new Date('2026-09-28T09:00:00+07:00')), true, 'Thứ 2 được đặt hàng');
+assert.strictEqual(isOrderingAllowed(new Date('2026-10-02T16:00:00+07:00')), true, 'Thứ 6 được đặt hàng');
+assert.strictEqual(isOrderingAllowed(new Date('2026-10-03T10:00:00+07:00')), true, 'Thứ 7 VẪN được đặt hàng (cho ngày nướng trong tuần)');
+assert.strictEqual(isOrderingAllowed(new Date('2026-10-04T12:00:00+07:00')), true, 'Chủ Nhật VẪN được đặt hàng (cho ngày nướng trong tuần)');
 
-// Test orderService.createOrder chặn tạo đơn vào cuối tuần
-const testMockPayload = {
-  customer_name: 'Khách Thử Nghiệm',
-  phone: '0901234567',
-  social_username: '@test_cucki',
-  order_channel: 'Instagram',
-  delivery_address: '123 Đường Bánh Quy, Q1, TPHCM',
-  pickup_date: validPickupDay,
-  ship_payment_method: 'Chuyển khoản tiền ship cho Cúc-Ki',
-  items: [{ productId: 'mock-id-1', quantity: 1 }],
-};
-
-await assert.rejects(
-  async () => {
-    await orderService.createOrder(testMockPayload, new Date('2026-10-03T10:00:00+07:00'));
-  },
-  /ORDER_WEEKEND_CLOSED/,
-  'Tạo đơn vào Thứ 7 phải bị chặn với lỗi ORDER_WEEKEND_CLOSED'
+// Danh sách 31 ngày nướng bánh tuyệt đối KHÔNG có Thứ 7 & Chủ Nhật
+assert(
+  days.every((d) => !d.isWeekend),
+  'Danh sách ngày nướng bánh không được chứa Thứ 7 và Chủ Nhật'
 );
-
-await assert.rejects(
-  async () => {
-    await orderService.createOrder(testMockPayload, new Date('2026-10-04T15:00:00+07:00'));
-  },
-  /ORDER_WEEKEND_CLOSED/,
-  'Tạo đơn vào Chủ Nhật phải bị chặn với lỗi ORDER_WEEKEND_CLOSED'
-);
-console.log('   ✅ Đạt: Chặn tạo đơn thành công vào Thứ 7 & Chủ Nhật, cho phép Thứ 2 đến Thứ 6.\n');
+console.log('   ✅ Đạt: Cho phép đặt hàng 24/7 kể cả cuối tuần, danh sách ngày nướng bánh chỉ gồm Thứ 2 đến Thứ 6.\n');
 
 // 7. Kiểm tra tính năng Quản lý On/Off ngày và Tùy chỉnh số lượng đơn nhận
 console.log('7. Kiểm tra tính năng Admin điều chỉnh On/Off và số lượng đơn nhận:');
