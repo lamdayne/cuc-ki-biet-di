@@ -3,6 +3,11 @@ import { supabase } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { memoryStore } from './store.js';
 import { DEFAULT_PACKING_FEE_CONFIG } from '../utils/packingFee.js';
+import {
+  getUpcomingDays,
+  resolveDateConfig,
+  DEFAULT_DAILY_SETTINGS,
+} from '../utils/dates.js';
 
 const isSupabaseLive = Boolean(
   env.SUPABASE_URL &&
@@ -83,9 +88,16 @@ export const adminService = {
       }
     }
 
+    const dailySettings = await this.getDailyOrderSettings();
+    const dayLimits = {};
+    for (const d of dates) {
+      dayLimits[d] = resolveDateConfig(d, dailySettings).maxOrders;
+    }
+
     return {
       orders: ordersWithItems,
       dayCounts,
+      dayLimits,
     };
   },
 
@@ -344,5 +356,187 @@ export const adminService = {
 
     if (error) throw error;
     return data?.value ?? payload;
+  },
+
+  async getDailyOrderSettings() {
+    if (!isSupabaseLive) {
+      return memoryStore.getDailyOrderSettings();
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'daily_order_settings')
+        .maybeSingle();
+
+      if (error || !data?.value) {
+        return DEFAULT_DAILY_SETTINGS;
+      }
+      return data.value;
+    } catch (err) {
+      console.error('Failed to get daily_order_settings, fallback to default:', err);
+      return DEFAULT_DAILY_SETTINGS;
+    }
+  },
+
+  async getScheduleData(daysAhead = 60) {
+    const settings = await this.getDailyOrderSettings();
+    const upcomingDays = getUpcomingDays(new Date(), daysAhead, settings);
+
+    let ordersByDate = {};
+    let countsByDate = {};
+
+    if (!isSupabaseLive) {
+      const allOrders = memoryStore.orders.filter((o) => o.status !== 'cancelled');
+      for (const ord of allOrders) {
+        if (!ordersByDate[ord.pickup_date]) ordersByDate[ord.pickup_date] = [];
+        ordersByDate[ord.pickup_date].push({
+          id: ord.id,
+          code: ord.code,
+          customer_name: ord.customer_name,
+          phone: ord.phone,
+          status: ord.status,
+          total_price: ord.total_price,
+          created_at: ord.created_at,
+          items_count: (ord.order_items || []).reduce((s, it) => s + (it.quantity || 1), 0),
+        });
+        countsByDate[ord.pickup_date] = (countsByDate[ord.pickup_date] || 0) + 1;
+      }
+    } else if (upcomingDays.length > 0) {
+      const startDate = upcomingDays[0].dateStr;
+      const endDate = upcomingDays[upcomingDays.length - 1].dateStr;
+
+      const { data: dbOrders, error } = await supabase
+        .from('orders')
+        .select('id, code, customer_name, phone, status, total_price, created_at, pickup_date')
+        .gte('pickup_date', startDate)
+        .lte('pickup_date', endDate)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false });
+
+      if (!error && dbOrders) {
+        for (const ord of dbOrders) {
+          if (!ordersByDate[ord.pickup_date]) ordersByDate[ord.pickup_date] = [];
+          ordersByDate[ord.pickup_date].push(ord);
+          countsByDate[ord.pickup_date] = (countsByDate[ord.pickup_date] || 0) + 1;
+        }
+      }
+    }
+
+    let totalOpen = 0;
+    let totalClosed = 0;
+    let totalFull = 0;
+    let totalBookedOrders = 0;
+
+    const enrichedDays = upcomingDays.map((d) => {
+      const count = countsByDate[d.dateStr] || 0;
+      const isFull = !d.isOpen || (d.maxOrders > 0 && count >= d.maxOrders);
+      totalBookedOrders += count;
+
+      if (d.isOpen) {
+        totalOpen++;
+        if (isFull) totalFull++;
+      } else {
+        totalClosed++;
+      }
+
+      return {
+        ...d,
+        count,
+        isFull,
+        orders: ordersByDate[d.dateStr] || [],
+      };
+    });
+
+    return {
+      settings,
+      days: enrichedDays,
+      stats: {
+        totalDays: upcomingDays.length,
+        openDaysCount: totalOpen,
+        closedDaysCount: totalClosed,
+        fullDaysCount: totalFull,
+        totalBookedOrders,
+      },
+    };
+  },
+
+  async updateDailyOrderSettings(newSettings) {
+    const payload = {
+      default_max_orders:
+        Number(newSettings.default_max_orders) >= 0
+          ? Number(newSettings.default_max_orders)
+          : 4,
+      allow_weekend_ordering: Boolean(newSettings.allow_weekend_ordering),
+      day_configs: newSettings.day_configs || {},
+    };
+
+    if (!isSupabaseLive) {
+      return memoryStore.updateDailyOrderSettings(payload);
+    }
+
+    const { data, error } = await supabase
+      .from('settings')
+      .upsert({
+        key: 'daily_order_settings',
+        value: payload,
+        updated_at: new Date().toISOString(),
+      })
+      .select('value')
+      .single();
+
+    if (error) throw error;
+    return data?.value ?? payload;
+  },
+
+  async updateDayConfig(date, config) {
+    const currentSettings = await this.getDailyOrderSettings();
+    const updatedDayConfigs = { ...(currentSettings.day_configs || {}) };
+
+    updatedDayConfigs[date] = {
+      ...(updatedDayConfigs[date] || {}),
+      is_open: typeof config.is_open === 'boolean' ? config.is_open : true,
+      max_orders:
+        config.max_orders !== undefined
+          ? Number(config.max_orders)
+          : (updatedDayConfigs[date]?.max_orders ?? currentSettings.default_max_orders ?? 4),
+      note: config.note !== undefined ? config.note : (updatedDayConfigs[date]?.note || ''),
+    };
+
+    const newSettings = {
+      ...currentSettings,
+      day_configs: updatedDayConfigs,
+    };
+
+    return this.updateDailyOrderSettings(newSettings);
+  },
+
+  async batchUpdateDays({ dates = [], is_open, max_orders, reset_to_default = false }) {
+    const currentSettings = await this.getDailyOrderSettings();
+    const updatedDayConfigs = { ...(currentSettings.day_configs || {}) };
+
+    for (const date of dates) {
+      if (reset_to_default) {
+        delete updatedDayConfigs[date];
+      } else {
+        const existing = updatedDayConfigs[date] || {};
+        updatedDayConfigs[date] = {
+          ...existing,
+          is_open: typeof is_open === 'boolean' ? is_open : (existing.is_open ?? true),
+          max_orders:
+            max_orders !== undefined
+              ? Number(max_orders)
+              : (existing.max_orders ?? currentSettings.default_max_orders ?? 4),
+        };
+      }
+    }
+
+    const newSettings = {
+      ...currentSettings,
+      day_configs: updatedDayConfigs,
+    };
+
+    return this.updateDailyOrderSettings(newSettings);
   },
 };

@@ -170,5 +170,30 @@ export const api = {
       body: JSON.stringify(config),
     });
   },
+
+  getAdminSchedule(daysAhead = 60) {
+    return request(`/api/admin/schedule-settings?daysAhead=${daysAhead}`);
+  },
+
+  updateAdminSchedule(settings) {
+    return request('/api/admin/schedule-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  updateDayConfig(date, config) {
+    return request('/api/admin/schedule-settings/day', {
+      method: 'PATCH',
+      body: JSON.stringify({ date, ...config }),
+    });
+  },
+
+  batchUpdateDays(payload) {
+    return request('/api/admin/schedule-settings/batch', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
 };
 

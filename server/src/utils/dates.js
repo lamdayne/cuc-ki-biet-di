@@ -28,61 +28,11 @@ export function getTodayVietnamString(referenceDate = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Generates an array of 31 upcoming weekday date strings (YYYY-MM-DD, Thứ 2 đến Thứ 6)
- * starting from today (or the next available Monday if today is a weekend) in Asia/Ho_Chi_Minh.
- * Completely excludes Saturday and Sunday.
- */
-export function getUpcoming31Days(referenceDate = new Date()) {
-  const todayStr = getTodayVietnamString(referenceDate);
-  const [year, month, day] = todayStr.split('-').map(Number);
-
-  const dates = [];
-  // Use UTC dates offset to avoid local daylight savings bugs
-  const base = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-
-  let offsetDays = 0;
-  while (dates.length < 31 && offsetDays < 70) {
-    const d = new Date(base.getTime() + offsetDays * 24 * 60 * 60 * 1000);
-    const dayOfWeek = d.getUTCDay();
-
-    // Skip Saturday (6) and Sunday (0)
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      offsetDays++;
-      continue;
-    }
-
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dayOfMonth = String(d.getUTCDate()).padStart(2, '0');
-    const dateStr = `${y}-${m}-${dayOfMonth}`;
-
-    const weekdayName = VIETNAMESE_WEEKDAYS[dayOfWeek];
-    const monthGroup = `Tháng ${d.getUTCMonth() + 1}/${y}`;
-    const displayDate = `${dayOfMonth}/${m}/${y}`;
-
-    dates.push({
-      dateStr,
-      weekdayName,
-      monthGroup,
-      displayDate,
-      isToday: dateStr === todayStr,
-    });
-
-    offsetDays++;
-  }
-
-  return dates;
-}
-
-/**
- * Validates if the given date string (YYYY-MM-DD) falls between today and today + 30 days
- */
-export function isWithinValidPickupWindow(dateStr, referenceDate = new Date()) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
-  const validDates = getUpcoming31Days(referenceDate);
-  return validDates.some((d) => d.dateStr === dateStr);
-}
+export const DEFAULT_DAILY_SETTINGS = {
+  default_max_orders: 4,
+  allow_weekend_ordering: false,
+  day_configs: {},
+};
 
 /**
  * Gets day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
@@ -104,26 +54,128 @@ export function isWeekendInVietnam(referenceDate = new Date()) {
 }
 
 /**
- * Checks if order placement is currently allowed (Monday to Friday only)
+ * Resolves the configuration for a specific date (isOpen, maxOrders, note, isCustom)
  */
-export function isOrderingAllowed(referenceDate = new Date()) {
+export function resolveDateConfig(dateStr, scheduleSettings = null) {
+  const settings = scheduleSettings || DEFAULT_DAILY_SETTINGS;
+  const defaultMax = Number(settings.default_max_orders) >= 0 ? Number(settings.default_max_orders) : 4;
+  const allowWeekend = Boolean(settings.allow_weekend_ordering);
+  const dayConfigs = settings.day_configs || {};
+
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dateObj = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const dayOfWeek = dateObj.getUTCDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  const override = dayConfigs[dateStr];
+  if (override) {
+    const isOpen = typeof override.is_open === 'boolean' ? override.is_open : true;
+    const maxOrders = typeof override.max_orders === 'number' ? override.max_orders : defaultMax;
+    return {
+      isOpen,
+      maxOrders,
+      note: override.note || '',
+      isCustom: true,
+      isWeekend,
+      dayOfWeek,
+    };
+  }
+
+  return {
+    isOpen: isWeekend ? allowWeekend : true,
+    maxOrders: defaultMax,
+    note: '',
+    isCustom: false,
+    isWeekend,
+    dayOfWeek,
+  };
+}
+
+/**
+ * Generates an array of upcoming calendar days starting from today in Asia/Ho_Chi_Minh.
+ * Includes both weekdays and weekends with dynamic resolution of open/closed status and max quotas.
+ */
+export function getUpcomingDays(referenceDate = new Date(), totalDays = 42, scheduleSettings = null) {
+  const todayStr = getTodayVietnamString(referenceDate);
+  const [year, month, day] = todayStr.split('-').map(Number);
+
+  const dates = [];
+  const base = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+
+  for (let offset = 0; offset < totalDays; offset++) {
+    const d = new Date(base.getTime() + offset * 24 * 60 * 60 * 1000);
+    const dayOfWeek = d.getUTCDay();
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(d.getUTCDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${dayOfMonth}`;
+
+    const weekdayName = VIETNAMESE_WEEKDAYS[dayOfWeek];
+    const monthGroup = `Tháng ${d.getUTCMonth() + 1}/${y}`;
+    const displayDate = `${dayOfMonth}/${m}/${y}`;
+    const resolved = resolveDateConfig(dateStr, scheduleSettings);
+
+    dates.push({
+      dateStr,
+      weekdayName,
+      monthGroup,
+      displayDate,
+      dayOfWeek,
+      isWeekend: resolved.isWeekend,
+      isToday: dateStr === todayStr,
+      isOpen: resolved.isOpen,
+      maxOrders: resolved.maxOrders,
+      note: resolved.note,
+      isCustom: resolved.isCustom,
+    });
+  }
+
+  return dates;
+}
+
+/**
+ * Backward compatible generator: returns upcoming days for customer ordering.
+ * Filters out closed unconfigured weekends so customer dropdown stays clean,
+ * but includes all weekdays (open or paused) and any weekends that admin explicitly opened.
+ */
+export function getUpcoming31Days(referenceDate = new Date(), scheduleSettings = null) {
+  const allDays = getUpcomingDays(referenceDate, 50, scheduleSettings);
+  return allDays.filter((d) => !d.isWeekend || d.isOpen).slice(0, 31);
+}
+
+/**
+ * Validates if the given date string (YYYY-MM-DD) falls within the valid upcoming pickup window
+ */
+export function isWithinValidPickupWindow(dateStr, referenceDate = new Date(), scheduleSettings = null) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const validDates = getUpcoming31Days(referenceDate, scheduleSettings);
+  return validDates.some((d) => d.dateStr === dateStr);
+}
+
+/**
+ * Checks if order placement is currently allowed
+ */
+export function isOrderingAllowed(referenceDate = new Date(), scheduleSettings = null) {
+  if (scheduleSettings?.allow_weekend_ordering) return true;
   return !isWeekendInVietnam(referenceDate);
 }
 
 /**
  * Provides structured schedule info for UI badges and API responses
  */
-export function getOrderingScheduleInfo(referenceDate = new Date()) {
+export function getOrderingScheduleInfo(referenceDate = new Date(), scheduleSettings = null) {
   const dow = getVietnamDayOfWeek(referenceDate);
-  const isOpen = !isWeekendInVietnam(referenceDate);
+  const allowWeekend = Boolean(scheduleSettings?.allow_weekend_ordering);
+  const isOpen = allowWeekend || !isWeekendInVietnam(referenceDate);
   const todayWeekday = VIETNAMESE_WEEKDAYS[dow];
+
   return {
     isOpen,
     todayWeekday,
-    allowedDaysText: 'Thứ 2 đến Thứ 6',
-    closedDaysText: 'Thứ 7 & Chủ Nhật',
+    allowedDaysText: allowWeekend ? 'Tất cả các ngày trong tuần' : 'Thứ 2 đến Thứ 6',
+    closedDaysText: allowWeekend ? 'Không có' : 'Thứ 7 & Chủ Nhật',
     message: isOpen
-      ? 'Tiệm đang nhận đặt bánh (nhận đơn Thứ 2 - Thứ 6)'
+      ? `Tiệm đang nhận đặt bánh (${allowWeekend ? 'Mở nhận đơn cả cuối tuần' : 'Nhận đơn Thứ 2 - Thứ 6'})`
       : 'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm đóng cổng đặt đơn.',
   };
 }

@@ -196,7 +196,7 @@ export default function OrderForm({
                 <option
                   key={day.dateStr}
                   value={day.dateStr}
-                  disabled={day.isFull}
+                  disabled={day.isFull || !day.isOpen}
                 >
                   {day.label}
                 </option>
@@ -205,7 +205,7 @@ export default function OrderForm({
           ))}
         </select>
         <div className="form-helper">
-          CÚC-KI nhận tối đa 4 đơn/ngày (chỉ giao nhận bánh từ Thứ 2 đến Thứ 6, nghỉ Thứ 7 & Chủ Nhật).
+          CÚC-KI giới hạn số lượng đơn nhận mỗi ngày để đảm bảo bánh luôn tươi mới và chất lượng nhất.
         </div>
         {errors.pickup_date && (
           <div className="form-error">{errors.pickup_date}</div>

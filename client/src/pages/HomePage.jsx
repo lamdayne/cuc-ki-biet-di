@@ -149,8 +149,12 @@ export default function HomePage() {
       errs.pickup_date = 'Vui lòng chọn ngày nhận bánh';
     } else {
       const selectedDay = availability.find((d) => d.dateStr === formData.pickup_date);
-      if (selectedDay && (selectedDay.weekdayName === 'Thứ Bảy' || selectedDay.weekdayName === 'Chủ Nhật')) {
-        errs.pickup_date = 'Tiệm chỉ nhận giao bánh từ Thứ 2 đến Thứ 6 (không nhận Thứ 7, Chủ Nhật)';
+      if (selectedDay) {
+        if (!selectedDay.isOpen) {
+          errs.pickup_date = `Ngày ${selectedDay.displayDate} tiệm tạm ngưng nhận đơn. Vui lòng chọn ngày khác.`;
+        } else if (selectedDay.isFull) {
+          errs.pickup_date = `Ngày ${selectedDay.displayDate} đã nhận đủ số lượng đơn hàng (${selectedDay.count}/${selectedDay.max}). Vui lòng chọn ngày khác.`;
+        }
       }
     }
 

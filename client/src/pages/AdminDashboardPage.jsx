@@ -17,6 +17,18 @@ import {
   Calculator,
   RotateCcw,
   HelpCircle,
+  Check,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Eye,
+  Info,
+  List,
+  Grid,
+  FileText,
+  Clock,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatMoney, ORDER_STATUS_MAP } from '../utils/formatters';
@@ -29,14 +41,33 @@ import ImageCropModal from '../components/ImageCropModal';
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'categories' | 'products'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'schedule' | 'categories' | 'products' | 'settings'
   const [loading, setLoading] = useState(true);
 
   // Data states
   const [orders, setOrders] = useState([]);
   const [dayCounts, setDayCounts] = useState({});
+  const [dayLimits, setDayLimits] = useState({});
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+
+  // Schedule Management states
+  const [scheduleData, setScheduleData] = useState({
+    settings: { default_max_orders: 4, allow_weekend_ordering: false, day_configs: {} },
+    days: [],
+    stats: { totalDays: 0, openDaysCount: 0, closedDaysCount: 0, fullDaysCount: 0, totalBookedOrders: 0 },
+  });
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleViewMode, setScheduleViewMode] = useState('calendar'); // 'calendar' | 'table'
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState(0);
+  const [scheduleFilter, setScheduleFilter] = useState('all'); // 'all' | 'open' | 'closed' | 'has_orders' | 'full'
+  const [viewOrdersModalDay, setViewOrdersModalDay] = useState(null);
+  const [editingDayNote, setEditingDayNote] = useState(null);
+  const [defaultQuotaInput, setDefaultQuotaInput] = useState(4);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchActionType, setBatchActionType] = useState('open_weekdays');
+  const [batchCustomQuota, setBatchCustomQuota] = useState(4);
 
   // Pagination states
   const [orderPage, setOrderPage] = useState(1);
@@ -109,7 +140,7 @@ export default function AdminDashboardPage() {
 
   const loadAllData = async () => {
     try {
-      const [ordersRes, catsRes, prodsRes, feeRes] = await Promise.allSettled([
+      const [ordersRes, catsRes, prodsRes, feeRes, scheduleRes] = await Promise.allSettled([
         api.getAdminOrders({
           pickupDate: orderDateFilter,
           status: orderStatusFilter,
@@ -117,11 +148,13 @@ export default function AdminDashboardPage() {
         api.getAdminCategories(),
         api.getAdminProducts(),
         api.getPackingFeeConfig(),
+        api.getAdminSchedule(60),
       ]);
 
       if (ordersRes.status === 'fulfilled') {
         setOrders(ordersRes.value.data.orders || []);
         setDayCounts(ordersRes.value.data.dayCounts || {});
+        setDayLimits(ordersRes.value.data.dayLimits || {});
       } else {
         console.error('Lỗi tải đơn hàng:', ordersRes.reason);
         showNotify(`Lỗi tải đơn hàng: ${ordersRes.reason?.message || 'Không thể lấy danh sách đơn'}`, true);
@@ -138,8 +171,195 @@ export default function AdminDashboardPage() {
       if (feeRes.status === 'fulfilled' && feeRes.value.data) {
         setPackingFeeConfig(feeRes.value.data);
       }
+
+      if (scheduleRes.status === 'fulfilled' && scheduleRes.value.data) {
+        setScheduleData(scheduleRes.value.data);
+        setDefaultQuotaInput(scheduleRes.value.data.settings?.default_max_orders ?? 4);
+      }
     } catch (err) {
       showNotify(err.message, true);
+    }
+  };
+
+  const loadScheduleData = async () => {
+    try {
+      setScheduleLoading(true);
+      const res = await api.getAdminSchedule(60);
+      if (res?.data) {
+        setScheduleData(res.data);
+        setDefaultQuotaInput(res.data.settings?.default_max_orders ?? 4);
+      }
+    } catch (err) {
+      console.error('Lỗi tải lịch nhận đơn:', err);
+      showNotify(`Lỗi tải lịch nhận đơn: ${err.message}`, true);
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
+
+  const handleToggleDay = async (dateStr) => {
+    const currentDay = scheduleData.days.find((d) => d.dateStr === dateStr);
+    if (!currentDay) return;
+    const newIsOpen = !currentDay.isOpen;
+
+    // Optimistic UI update
+    setScheduleData((prev) => {
+      const updatedDays = prev.days.map((d) => {
+        if (d.dateStr !== dateStr) return d;
+        const isFull = !newIsOpen || (d.maxOrders > 0 && d.count >= d.maxOrders);
+        return { ...d, isOpen: newIsOpen, isFull, isCustom: true };
+      });
+      const openCount = updatedDays.filter((d) => d.isOpen).length;
+      const closedCount = updatedDays.length - openCount;
+      const fullCount = updatedDays.filter((d) => d.isFull).length;
+      return {
+        ...prev,
+        days: updatedDays,
+        stats: {
+          ...prev.stats,
+          openDaysCount: openCount,
+          closedDaysCount: closedCount,
+          fullDaysCount: fullCount,
+        },
+      };
+    });
+
+    try {
+      await api.updateDayConfig(dateStr, { is_open: newIsOpen });
+      showNotify(
+        newIsOpen
+          ? `🟢 Đã MỞ nhận đơn ngày ${currentDay.displayDate}`
+          : `⚪ Đã TẮT nhận đơn ngày ${currentDay.displayDate}`
+      );
+    } catch (err) {
+      showNotify(`Lỗi cập nhật: ${err.message}`, true);
+      loadScheduleData();
+    }
+  };
+
+  const handleUpdateDayQuota = async (dateStr, newQuota) => {
+    const quota = Math.max(0, parseInt(newQuota, 10) || 0);
+    const currentDay = scheduleData.days.find((d) => d.dateStr === dateStr);
+    if (!currentDay) return;
+
+    // Optimistic UI update
+    setScheduleData((prev) => {
+      const updatedDays = prev.days.map((d) => {
+        if (d.dateStr !== dateStr) return d;
+        const isFull = !d.isOpen || (quota > 0 && d.count >= quota);
+        return { ...d, maxOrders: quota, isFull, isCustom: true };
+      });
+      const fullCount = updatedDays.filter((d) => d.isFull).length;
+      return {
+        ...prev,
+        days: updatedDays,
+        stats: {
+          ...prev.stats,
+          fullDaysCount: fullCount,
+        },
+      };
+    });
+
+    try {
+      await api.updateDayConfig(dateStr, { max_orders: quota });
+      showNotify(`🎯 Đã đổi giới hạn ngày ${currentDay.displayDate}: ${quota} đơn`);
+    } catch (err) {
+      showNotify(`Lỗi cập nhật giới hạn: ${err.message}`, true);
+      loadScheduleData();
+    }
+  };
+
+  const handleSaveDefaultQuota = async () => {
+    try {
+      setSavingSchedule(true);
+      const quota = Math.max(0, parseInt(defaultQuotaInput, 10) || 0);
+      const newSettings = {
+        ...scheduleData.settings,
+        default_max_orders: quota,
+      };
+      await api.updateAdminSchedule(newSettings);
+      showNotify(`✅ Đã lưu giới hạn mặc định: ${quota} đơn/ngày`);
+      await loadScheduleData();
+    } catch (err) {
+      showNotify(`Lỗi lưu mặc định: ${err.message}`, true);
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const handleToggleWeekendOrdering = async () => {
+    try {
+      setSavingSchedule(true);
+      const newAllow = !scheduleData.settings.allow_weekend_ordering;
+      const newSettings = {
+        ...scheduleData.settings,
+        allow_weekend_ordering: newAllow,
+      };
+      await api.updateAdminSchedule(newSettings);
+      showNotify(
+        newAllow
+          ? '🟢 Đã BẬT tự động nhận đơn cuối tuần (Thứ 7 & CN)'
+          : '⚪ Đã TẮT tự động nhận đơn cuối tuần (Thứ 7 & CN)'
+      );
+      await loadScheduleData();
+    } catch (err) {
+      showNotify(`Lỗi: ${err.message}`, true);
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const handleExecuteBatchAction = async () => {
+    try {
+      setSavingSchedule(true);
+      const uniqueMonthGroups = Array.from(new Set(scheduleData.days.map((d) => d.monthGroup)));
+      const currentMonthGroup = uniqueMonthGroups[selectedMonthIndex] || '';
+      const daysInCurrentMonth = scheduleData.days.filter(
+        (d) => d.monthGroup === currentMonthGroup
+      );
+
+      if (daysInCurrentMonth.length === 0) {
+        showNotify('Không có ngày nào trong tháng này', true);
+        return;
+      }
+
+      let payload = {};
+      if (batchActionType === 'open_weekdays') {
+        const weekdayDates = daysInCurrentMonth.filter((d) => !d.isWeekend).map((d) => d.dateStr);
+        payload = { dates: weekdayDates, is_open: true };
+      } else if (batchActionType === 'close_weekends') {
+        const weekendDates = daysInCurrentMonth.filter((d) => d.isWeekend).map((d) => d.dateStr);
+        payload = { dates: weekendDates, is_open: false };
+      } else if (batchActionType === 'set_month_quota') {
+        const allDates = daysInCurrentMonth.map((d) => d.dateStr);
+        payload = { dates: allDates, max_orders: batchCustomQuota };
+      } else if (batchActionType === 'reset_month') {
+        const allDates = daysInCurrentMonth.map((d) => d.dateStr);
+        payload = { dates: allDates, reset_to_default: true };
+      }
+
+      await api.batchUpdateDays(payload);
+      showNotify('✅ Đã cập nhật hàng loạt thành công!');
+      setBatchModalOpen(false);
+      await loadScheduleData();
+    } catch (err) {
+      showNotify(`Lỗi thao tác hàng loạt: ${err.message}`, true);
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const handleSaveNote = async (dateStr, note) => {
+    try {
+      await api.updateDayConfig(dateStr, { note: (note || '').trim() });
+      setScheduleData((prev) => ({
+        ...prev,
+        days: prev.days.map((d) => (d.dateStr === dateStr ? { ...d, note: (note || '').trim() } : d)),
+      }));
+      setEditingDayNote(null);
+      showNotify('Đã lưu ghi chú cho ngày');
+    } catch (err) {
+      showNotify(`Lỗi lưu ghi chú: ${err.message}`, true);
     }
   };
 
@@ -516,6 +736,21 @@ export default function AdminDashboardPage() {
     catPage * catsPerPage
   );
 
+  const uniqueMonthGroups = Array.from(new Set(scheduleData.days.map((d) => d.monthGroup)));
+  const currentMonthGroup = uniqueMonthGroups[selectedMonthIndex] || uniqueMonthGroups[0] || '';
+  const currentMonthDays = scheduleData.days.filter((d) => d.monthGroup === currentMonthGroup);
+
+  const filteredScheduleDays = currentMonthDays.filter((d) => {
+    if (scheduleFilter === 'open') return d.isOpen;
+    if (scheduleFilter === 'closed') return !d.isOpen;
+    if (scheduleFilter === 'has_orders') return d.count > 0;
+    if (scheduleFilter === 'full') return d.isFull;
+    return true;
+  });
+
+  const firstDayOfMonth = currentMonthDays[0];
+  const paddingBefore = firstDayOfMonth ? (firstDayOfMonth.dayOfWeek + 6) % 7 : 0;
+
   if (loading) {
     return (
       <div className="container" style={{ padding: '80px 20px', textAlign: 'center' }}>
@@ -579,6 +814,18 @@ export default function AdminDashboardPage() {
         >
           <Package size={18} style={{ display: 'inline', marginRight: '6px' }} />
           Đơn hàng ({orders.length})
+        </button>
+
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'schedule' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('schedule');
+            loadScheduleData();
+          }}
+        >
+          <Calendar size={18} style={{ display: 'inline', marginRight: '6px' }} />
+          Lịch & Giới hạn đơn
         </button>
 
         <button
@@ -694,7 +941,8 @@ export default function AdminDashboardPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {paginatedOrders.map((ord) => {
                 const countForDay = dayCounts[ord.pickup_date] ?? 0;
-                const isDayFull = countForDay >= 4;
+                const maxForDay = dayLimits[ord.pickup_date] ?? 4;
+                const isDayFull = maxForDay > 0 && countForDay >= maxForDay;
                 const statusMeta = ORDER_STATUS_MAP[ord.status] || ORDER_STATUS_MAP.pending;
                 const [y, m, d] = ord.pickup_date.split('-');
                 const displayPickupDate = `${d}/${m}/${y}`;
@@ -730,7 +978,7 @@ export default function AdminDashboardPage() {
                             Nhận: <strong>{displayPickupDate}</strong>
                           </span>
                           <span className={`order-day-pill ${isDayFull ? 'pill-full' : 'pill-available'}`}>
-                            {countForDay}/4 đơn
+                            {countForDay}/{maxForDay} đơn
                           </span>
                         </div>
 
@@ -866,7 +1114,572 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* TAB 2: LOẠI COOKIE */}
+      {/* TAB 2: LỊCH NHẬN ĐƠN & GIỚI HẠN ĐƠN (SCHEDULE & CAPACITY MANAGEMENT) */}
+      {activeTab === 'schedule' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          {/* Header Card with Stats */}
+          <div
+            className="form-card"
+            style={{
+              background: 'linear-gradient(135deg, #FFF9F3 0%, #FFFFFF 100%)',
+              border: '1.5px solid var(--card-border)',
+              borderRadius: '20px',
+              padding: '24px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.45rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Calendar size={24} style={{ color: 'var(--color-accent-terracotta)' }} />
+                  Quản Lý Lịch Nhận Đơn & Số Lượng Đơn / Ngày
+                </h2>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: '0.94rem', marginTop: '6px', maxWidth: '780px', lineHeight: 1.6 }}>
+                  • <strong>Bật / Tắt ngày nhận bánh:</strong> Nhấp nút ON / OFF trên từng ngày để mở nhận đơn hoặc tạm ngưng (nghỉ lễ, sửa lò, việc bận...).
+                  <br />
+                  • <strong>Điều chỉnh số lượng nhận:</strong> Tăng/giảm số đơn tối đa nhận cho từng ngày riêng lẻ (ví dụ: ngày 28 nhận 8 đơn, ngày 29 nhận 2 đơn).
+                  <br />
+                  • <strong>Tự động áp dụng:</strong> Khách đặt hàng sẽ chỉ chọn được những ngày đang MỞ (ON) và còn chỗ trống.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={loadScheduleData}
+                  disabled={scheduleLoading}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 22px' }}
+                >
+                  <RefreshCw size={16} className={scheduleLoading ? 'spin' : ''} />
+                  Làm mới
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Stats Grid */}
+            <div className="schedule-stats-grid">
+              <div className="schedule-stat-card">
+                <div className="schedule-stat-icon open">
+                  <CheckCircle size={22} />
+                </div>
+                <div>
+                  <div className="schedule-stat-value">{scheduleData.stats.openDaysCount}</div>
+                  <div className="schedule-stat-label">Ngày đang mở nhận đơn (ON)</div>
+                </div>
+              </div>
+
+              <div className="schedule-stat-card">
+                <div className="schedule-stat-icon closed">
+                  <X size={22} />
+                </div>
+                <div>
+                  <div className="schedule-stat-value">{scheduleData.stats.closedDaysCount}</div>
+                  <div className="schedule-stat-label">Ngày tạm ngưng (OFF)</div>
+                </div>
+              </div>
+
+              <div className="schedule-stat-card">
+                <div className="schedule-stat-icon full">
+                  <AlertCircle size={22} />
+                </div>
+                <div>
+                  <div className="schedule-stat-value">{scheduleData.stats.fullDaysCount}</div>
+                  <div className="schedule-stat-label">Ngày đã nhận đủ (FULL)</div>
+                </div>
+              </div>
+
+              <div className="schedule-stat-card">
+                <div className="schedule-stat-icon orders">
+                  <Package size={22} />
+                </div>
+                <div>
+                  <div className="schedule-stat-value">{scheduleData.stats.totalBookedOrders}</div>
+                  <div className="schedule-stat-label">Tổng đơn đã đặt (60 ngày tới)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Settings & View Switcher Bar */}
+          <div className="schedule-controls-bar">
+            {/* Setting 1: Default daily capacity */}
+            <div className="schedule-control-item">
+              <Sliders size={18} style={{ color: 'var(--color-primary)' }} />
+              <span style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                Giới hạn mặc định:
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  className="form-input"
+                  value={defaultQuotaInput}
+                  onChange={(e) => setDefaultQuotaInput(parseInt(e.target.value, 10) || 0)}
+                  style={{ width: '68px', padding: '6px 8px', textAlign: 'center', fontWeight: 700 }}
+                />
+                <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>đơn/ngày</span>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleSaveDefaultQuota}
+                  disabled={savingSchedule || defaultQuotaInput === scheduleData.settings?.default_max_orders}
+                  style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+                >
+                  Lưu mặc định
+                </button>
+              </div>
+            </div>
+
+            {/* Setting 2: Weekend ordering toggle */}
+            <div className="schedule-control-item">
+              <span style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                Nhận đơn Thứ 7 & CN:
+              </span>
+              <button
+                type="button"
+                className={`btn-day-toggle ${scheduleData.settings?.allow_weekend_ordering ? 'on' : 'off'}`}
+                onClick={handleToggleWeekendOrdering}
+                disabled={savingSchedule}
+                style={{ width: 'auto', padding: '6px 14px' }}
+                title="Bật/Tắt tự động mở nhận đơn vào Thứ 7 và Chủ Nhật cho toàn hệ thống"
+              >
+                {scheduleData.settings?.allow_weekend_ordering ? (
+                  <>
+                    <Check size={14} /> Tự động mở cuối tuần
+                  </>
+                ) : (
+                  <>
+                    <X size={14} /> Nghỉ cuối tuần (Mặc định)
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Setting 3: View Mode Switcher */}
+            <div className="schedule-control-item">
+              <div className="schedule-view-switcher">
+                <button
+                  type="button"
+                  className={`schedule-view-btn ${scheduleViewMode === 'calendar' ? 'active' : ''}`}
+                  onClick={() => setScheduleViewMode('calendar')}
+                >
+                  <Grid size={16} /> Lưới Lịch
+                </button>
+                <button
+                  type="button"
+                  className={`schedule-view-btn ${scheduleViewMode === 'table' ? 'active' : ''}`}
+                  onClick={() => setScheduleViewMode('table')}
+                >
+                  <List size={16} /> Danh Sách
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Month Navigation & Filters Bar */}
+          <div className="schedule-nav-filter-bar">
+            {/* Month Switcher */}
+            <div className="month-nav-group">
+              <button
+                type="button"
+                className="month-nav-btn"
+                onClick={() => setSelectedMonthIndex((prev) => Math.max(0, prev - 1))}
+                disabled={selectedMonthIndex <= 0}
+                title="Tháng trước"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <div className="month-nav-title">
+                {uniqueMonthGroups[selectedMonthIndex] || 'Lịch nhận đơn'}
+              </div>
+              <button
+                type="button"
+                className="month-nav-btn"
+                onClick={() =>
+                  setSelectedMonthIndex((prev) =>
+                    Math.min(uniqueMonthGroups.length - 1, prev + 1)
+                  )
+                }
+                disabled={selectedMonthIndex >= uniqueMonthGroups.length - 1}
+                title="Tháng tiếp theo"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+
+            {/* Filter Pills */}
+            <div className="schedule-filters-pills">
+              <button
+                type="button"
+                className={`schedule-filter-pill ${scheduleFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setScheduleFilter('all')}
+              >
+                Tất cả ({currentMonthDays.length})
+              </button>
+              <button
+                type="button"
+                className={`schedule-filter-pill ${scheduleFilter === 'open' ? 'active' : ''}`}
+                onClick={() => setScheduleFilter('open')}
+              >
+                🟢 Đang mở ({currentMonthDays.filter((d) => d.isOpen).length})
+              </button>
+              <button
+                type="button"
+                className={`schedule-filter-pill ${scheduleFilter === 'closed' ? 'active' : ''}`}
+                onClick={() => setScheduleFilter('closed')}
+              >
+                ⚪ Tạm đóng ({currentMonthDays.filter((d) => !d.isOpen).length})
+              </button>
+              <button
+                type="button"
+                className={`schedule-filter-pill ${scheduleFilter === 'has_orders' ? 'active' : ''}`}
+                onClick={() => setScheduleFilter('has_orders')}
+              >
+                📦 Có đơn ({currentMonthDays.filter((d) => d.count > 0).length})
+              </button>
+              <button
+                type="button"
+                className={`schedule-filter-pill ${scheduleFilter === 'full' ? 'active' : ''}`}
+                onClick={() => setScheduleFilter('full')}
+              >
+                🔴 Đã đầy ({currentMonthDays.filter((d) => d.isFull).length})
+              </button>
+            </div>
+
+            {/* Batch Action Button */}
+            <div>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setBatchModalOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: 'var(--pill-radius)',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                  border: '1.5px solid var(--card-border)',
+                  background: '#FFFFFF',
+                  color: 'var(--color-primary)',
+                }}
+              >
+                <Sparkles size={16} style={{ color: 'var(--color-accent-terracotta)' }} />
+                Thao tác hàng loạt
+              </button>
+            </div>
+          </div>
+
+          {/* MAIN VIEW: Calendar Grid */}
+          {scheduleViewMode === 'calendar' && (
+            <div className="schedule-calendar-wrapper">
+              {/* Day of Week Headers */}
+              <div className="schedule-calendar-headers">
+                <div className="schedule-calendar-header-col">Thứ Hai</div>
+                <div className="schedule-calendar-header-col">Thứ Ba</div>
+                <div className="schedule-calendar-header-col">Thứ Tư</div>
+                <div className="schedule-calendar-header-col">Thứ Năm</div>
+                <div className="schedule-calendar-header-col">Thứ Sáu</div>
+                <div className="schedule-calendar-header-col weekend">Thứ Bảy</div>
+                <div className="schedule-calendar-header-col weekend">Chủ Nhật</div>
+              </div>
+
+              {/* Day Grid */}
+              <div className="schedule-calendar-grid">
+                {/* Empty padding cells before first day of month if filter is 'all' */}
+                {scheduleFilter === 'all' &&
+                  Array.from({ length: paddingBefore }).map((_, idx) => (
+                    <div key={`empty-${idx}`} className="schedule-day-cell is-empty-placeholder"></div>
+                  ))}
+
+                {filteredScheduleDays.map((day) => (
+                  <div
+                    key={day.dateStr}
+                    className={`schedule-day-cell ${day.isToday ? 'is-today' : ''} ${!day.isOpen ? 'is-closed' : ''} ${day.isFull ? 'is-full' : ''}`}
+                  >
+                    {/* Header: Date + Badges */}
+                    <div className="schedule-cell-header">
+                      <div>
+                        <span className={`schedule-date-num ${day.isWeekend ? 'is-weekend' : ''}`}>
+                          {day.dateStr.split('-')[2]}
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginLeft: '6px', fontWeight: 600 }}>
+                          {day.weekdayName}
+                        </span>
+                      </div>
+                      <div className="schedule-cell-badges">
+                        {day.isToday && <span className="badge-pill-tag today">Hôm nay</span>}
+                        {day.isCustom && <span className="badge-pill-tag custom" title="Đã có cài đặt riêng cho ngày này">Tùy chỉnh</span>}
+                      </div>
+                    </div>
+
+                    {/* ON / OFF Toggle Button */}
+                    <button
+                      type="button"
+                      className={`btn-day-toggle ${day.isOpen ? 'on' : 'off'}`}
+                      onClick={() => handleToggleDay(day.dateStr)}
+                      title={day.isOpen ? 'Nhấp để TẮT nhận đơn ngày này' : 'Nhấp để BẬT nhận đơn ngày này'}
+                    >
+                      {day.isOpen ? (
+                        <>
+                          <Check size={14} /> MỞ ĐƠN (ON)
+                        </>
+                      ) : (
+                        <>
+                          <X size={14} /> TẠM ĐÓNG (OFF)
+                        </>
+                      )}
+                    </button>
+
+                    {/* Stepper: Max Quota */}
+                    <div className="schedule-stepper-box">
+                      <div className="schedule-stepper-label">
+                        <span>Giới hạn nhận đơn:</span>
+                        <span style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{day.maxOrders} đơn</span>
+                      </div>
+                      <div className="schedule-stepper-controls">
+                        <button
+                          type="button"
+                          className="stepper-btn"
+                          onClick={() => handleUpdateDayQuota(day.dateStr, Math.max(0, day.maxOrders - 1))}
+                          title="Giảm 1 đơn"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          className="stepper-input"
+                          value={day.maxOrders}
+                          onChange={(e) => handleUpdateDayQuota(day.dateStr, e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="stepper-btn"
+                          onClick={() => handleUpdateDayQuota(day.dateStr, day.maxOrders + 1)}
+                          title="Tăng 1 đơn"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar & Status Text */}
+                    <div className="schedule-progress-container">
+                      <div className="schedule-progress-text">
+                        <span style={{ color: 'var(--color-text-muted)' }}>Đã đặt:</span>
+                        <span style={{ color: 'var(--color-primary)' }}>
+                          {day.count} / {day.maxOrders} đơn
+                        </span>
+                      </div>
+                      <div className="schedule-progress-bar-bg">
+                        <div
+                          className={`schedule-progress-bar-fill ${
+                            day.isFull ? 'full' : day.count >= day.maxOrders * 0.7 ? 'warning' : 'normal'
+                          }`}
+                          style={{
+                            width: `${day.maxOrders > 0 ? Math.min(100, Math.round((day.count / day.maxOrders) * 100)) : 0}%`,
+                          }}
+                        ></div>
+                      </div>
+                      <div style={{ textAlign: 'right', fontSize: '0.72rem', fontWeight: 600 }}>
+                        {!day.isOpen ? (
+                          <span style={{ color: 'var(--color-text-muted)' }}>⚪ Tạm ngưng</span>
+                        ) : day.isFull ? (
+                          <span style={{ color: '#DC2626' }}>🔴 ĐÃ ĐỦ ĐƠN</span>
+                        ) : (
+                          <span style={{ color: '#2E7D32' }}>🟢 Còn {day.maxOrders - day.count} chỗ</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom: View Orders + Note */}
+                    <div className="schedule-cell-bottom">
+                      {day.count > 0 ? (
+                        <button
+                          type="button"
+                          className="btn-view-day-orders"
+                          onClick={() => setViewOrdersModalDay(day)}
+                          title="Xem chi tiết các đơn hàng đặt ngày này"
+                        >
+                          <Eye size={13} /> Xem {day.count} đơn
+                        </button>
+                      ) : (
+                        <div style={{ height: '28px' }}></div>
+                      )}
+
+                      {day.note ? (
+                        <div
+                          className="day-note-tag"
+                          onClick={() => setEditingDayNote({ date: day.dateStr, note: day.note, displayDate: day.displayDate })}
+                          title={`Ghi chú: ${day.note} (Nhấp để sửa)`}
+                        >
+                          📝 {day.note}
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            fontSize: '0.73rem',
+                            color: 'var(--color-text-subtle)',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setEditingDayNote({ date: day.dateStr, note: '', displayDate: day.displayDate })}
+                        >
+                          + Ghi chú
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {filteredScheduleDays.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-muted)' }}>
+                  Không có ngày nào phù hợp với bộ lọc trong tháng này.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MAIN VIEW: Table View */}
+          {scheduleViewMode === 'table' && (
+            <div className="form-card" style={{ padding: '0', overflow: 'hidden', borderRadius: '18px' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="schedule-table">
+                  <thead>
+                    <tr>
+                      <th>Ngày nhận bánh</th>
+                      <th>Trạng thái nhận đơn</th>
+                      <th style={{ width: '190px' }}>Giới hạn đơn tối đa</th>
+                      <th style={{ width: '220px' }}>Tiến độ đơn đã đặt</th>
+                      <th>Ghi chú</th>
+                      <th style={{ textAlign: 'center', width: '130px' }}>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredScheduleDays.map((day) => (
+                      <tr key={day.dateStr} className={!day.isOpen ? 'is-closed' : ''}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 700, color: day.isWeekend ? 'var(--color-accent-terracotta)' : 'var(--color-primary)' }}>
+                              {day.weekdayName}
+                            </span>
+                            <span style={{ color: 'var(--color-text-main)', fontSize: '0.92rem' }}>
+                              {day.displayDate}
+                            </span>
+                            {day.isToday && <span className="badge-pill-tag today">Hôm nay</span>}
+                            {day.isCustom && <span className="badge-pill-tag custom">Tùy chỉnh</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className={`btn-day-toggle ${day.isOpen ? 'on' : 'off'}`}
+                            onClick={() => handleToggleDay(day.dateStr)}
+                            style={{ width: 'auto', padding: '6px 14px' }}
+                          >
+                            {day.isOpen ? (
+                              <>
+                                <Check size={14} /> MỞ ĐƠN (ON)
+                              </>
+                            ) : (
+                              <>
+                                <X size={14} /> TẠM ĐÓNG (OFF)
+                              </>
+                            )}
+                          </button>
+                        </td>
+                        <td>
+                          <div className="schedule-stepper-controls" style={{ maxWidth: '140px' }}>
+                            <button
+                              type="button"
+                              className="stepper-btn"
+                              onClick={() => handleUpdateDayQuota(day.dateStr, Math.max(0, day.maxOrders - 1))}
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="stepper-input"
+                              value={day.maxOrders}
+                              onChange={(e) => handleUpdateDayQuota(day.dateStr, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="stepper-btn"
+                              onClick={() => handleUpdateDayQuota(day.dateStr, day.maxOrders + 1)}
+                            >
+                              +
+                            </button>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>đơn</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', fontWeight: 600 }}>
+                              <span>{day.count} / {day.maxOrders} đơn</span>
+                              <span>
+                                {!day.isOpen ? (
+                                  <span style={{ color: 'var(--color-text-muted)' }}>⚪ Tạm ngưng</span>
+                                ) : day.isFull ? (
+                                  <span style={{ color: '#DC2626' }}>🔴 ĐÃ ĐỦ ĐƠN</span>
+                                ) : (
+                                  <span style={{ color: '#2E7D32' }}>Còn {day.maxOrders - day.count} chỗ</span>
+                                )}
+                              </span>
+                            </div>
+                            <div className="schedule-progress-bar-bg" style={{ height: '6px' }}>
+                              <div
+                                className={`schedule-progress-bar-fill ${
+                                  day.isFull ? 'full' : day.count >= day.maxOrders * 0.7 ? 'warning' : 'normal'
+                                }`}
+                                style={{
+                                  width: `${day.maxOrders > 0 ? Math.min(100, Math.round((day.count / day.maxOrders) * 100)) : 0}%`,
+                                }}
+                              ></div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div
+                            style={{ cursor: 'pointer', fontSize: '0.88rem', color: day.note ? 'var(--color-text-main)' : 'var(--color-text-subtle)' }}
+                            onClick={() => setEditingDayNote({ date: day.dateStr, note: day.note, displayDate: day.displayDate })}
+                            title="Nhấp để sửa ghi chú"
+                          >
+                            {day.note ? `📝 ${day.note}` : '+ Thêm ghi chú...'}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {day.count > 0 ? (
+                            <button
+                              type="button"
+                              className="btn-view-day-orders"
+                              onClick={() => setViewOrdersModalDay(day)}
+                              style={{ width: 'auto', padding: '6px 12px' }}
+                            >
+                              <Eye size={13} /> {day.count} đơn
+                            </button>
+                          ) : (
+                            <span style={{ color: 'var(--color-text-subtle)', fontSize: '0.82rem' }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: LOẠI COOKIE */}
       {activeTab === 'categories' && (
         <div>
           <div
@@ -1900,6 +2713,326 @@ export default function AdminDashboardPage() {
         }}
         onConfirm={handleConfirmCroppedImage}
       />
+
+      {/* Modal: View Orders for Specific Date */}
+      {viewOrdersModalDay && (
+        <div className="modal-backdrop" onClick={() => setViewOrdersModalDay(null)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '650px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <div>
+                <h3 className="modal-title" style={{ margin: 0 }}>
+                  Đơn Hàng Ngày {viewOrdersModalDay.displayDate}
+                </h3>
+                <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
+                  {viewOrdersModalDay.weekdayName} — Tổng cộng {viewOrdersModalDay.count} / {viewOrdersModalDay.maxOrders} đơn
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setViewOrdersModalDay(null)}
+                style={{ padding: '6px 12px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {viewOrdersModalDay.orders.length === 0 ? (
+              <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                Chưa có đơn hàng nào cho ngày này.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflowY: 'auto' }}>
+                {viewOrdersModalDay.orders.map((ord) => {
+                  const statusMeta = ORDER_STATUS_MAP[ord.status] || ORDER_STATUS_MAP.pending;
+                  return (
+                    <div
+                      key={ord.id}
+                      style={{
+                        background: '#FAF6F0',
+                        border: '1px solid var(--card-border)',
+                        borderRadius: '12px',
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-primary)', fontSize: '1.05rem' }}>
+                            {ord.code}
+                          </span>
+                          <span
+                            className="status-badge"
+                            style={{
+                              backgroundColor: statusMeta.bgColor,
+                              color: statusMeta.color,
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {statusMeta.label}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.88rem', color: 'var(--color-text-main)', marginTop: '4px' }}>
+                          <strong>{ord.customer_name}</strong> — {ord.phone}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--color-accent-terracotta)', fontSize: '1.02rem' }}>
+                          {formatMoney(ord.total_price)}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setOrderDateFilter(viewOrdersModalDay.dateStr);
+                            setActiveTab('orders');
+                            setViewOrdersModalDay(null);
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.78rem',
+                            marginTop: '4px',
+                            borderRadius: 'var(--pill-radius)',
+                          }}
+                        >
+                          Xem chi tiết đơn
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: '20px' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setViewOrdersModalDay(null)}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Day Note */}
+      {editingDayNote && (
+        <div className="modal-backdrop" onClick={() => setEditingDayNote(null)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <h3 className="modal-title" style={{ marginBottom: '10px' }}>
+              Ghi Chú Ngày {editingDayNote.displayDate}
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '16px' }}>
+              Ghi chú nội bộ cho riêng ngày này (ví dụ: Nghỉ bảo trì lò nướng, Tăng ca đơn sự kiện, v.v.)
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveNote(editingDayNote.date, editingDayNote.note);
+              }}
+            >
+              <div className="form-group">
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editingDayNote.note}
+                  onChange={(e) => setEditingDayNote({ ...editingDayNote, note: e.target.value })}
+                  placeholder="Nhập ghi chú cho ngày..."
+                  maxLength={100}
+                  autoFocus
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setEditingDayNote(null)}
+                >
+                  HỦY
+                </button>
+                <button type="submit" className="btn-primary">
+                  LƯU GHI CHÚ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Batch Update Schedule */}
+      {batchModalOpen && (
+        <div className="modal-backdrop" onClick={() => setBatchModalOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <h3 className="modal-title" style={{ marginBottom: '12px' }}>
+              Thao Tác Hàng Loạt ({uniqueMonthGroups[selectedMonthIndex]})
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: '18px' }}>
+              Áp dụng nhanh thay đổi cho tất cả các ngày trong tháng <strong>{uniqueMonthGroups[selectedMonthIndex]}</strong>:
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleExecuteBatchAction();
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '22px' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    border: '1.5px solid var(--card-border)',
+                    background: batchActionType === 'open_weekdays' ? '#FBF7F2' : '#FFFFFF',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="batchAction"
+                    value="open_weekdays"
+                    checked={batchActionType === 'open_weekdays'}
+                    onChange={() => setBatchActionType('open_weekdays')}
+                  />
+                  <div>
+                    <strong style={{ display: 'block', color: 'var(--color-primary)' }}>
+                      🟢 Mở nhận đơn tất cả Thứ 2 - Thứ 6
+                    </strong>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                      Chuyển tất cả ngày trong tuần sang trạng thái MỞ (ON).
+                    </span>
+                  </div>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    border: '1.5px solid var(--card-border)',
+                    background: batchActionType === 'close_weekends' ? '#FBF7F2' : '#FFFFFF',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="batchAction"
+                    value="close_weekends"
+                    checked={batchActionType === 'close_weekends'}
+                    onChange={() => setBatchActionType('close_weekends')}
+                  />
+                  <div>
+                    <strong style={{ display: 'block', color: 'var(--color-primary)' }}>
+                      ⚪ Đóng tất cả Thứ 7 & Chủ Nhật
+                    </strong>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                      Chuyển tất cả ngày cuối tuần trong tháng sang trạng thái TẮT (OFF).
+                    </span>
+                  </div>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    border: '1.5px solid var(--card-border)',
+                    background: batchActionType === 'set_month_quota' ? '#FBF7F2' : '#FFFFFF',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="batchAction"
+                    value="set_month_quota"
+                    checked={batchActionType === 'set_month_quota'}
+                    onChange={() => setBatchActionType('set_month_quota')}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ display: 'block', color: 'var(--color-primary)' }}>
+                      🎯 Đặt số lượng đơn nhận cho cả tháng
+                    </strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                      <span style={{ fontSize: '0.84rem', color: 'var(--color-text-muted)' }}>Nhận tối đa:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        className="form-input"
+                        value={batchCustomQuota}
+                        onChange={(e) => setBatchCustomQuota(parseInt(e.target.value, 10) || 0)}
+                        style={{ width: '60px', padding: '4px 8px', textAlign: 'center', fontWeight: 700 }}
+                        disabled={batchActionType !== 'set_month_quota'}
+                      />
+                      <span style={{ fontSize: '0.84rem', color: 'var(--color-text-muted)' }}>đơn/ngày</span>
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    border: '1.5px solid var(--card-border)',
+                    background: batchActionType === 'reset_month' ? '#FBF7F2' : '#FFFFFF',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="batchAction"
+                    value="reset_month"
+                    checked={batchActionType === 'reset_month'}
+                    onChange={() => setBatchActionType('reset_month')}
+                  />
+                  <div>
+                    <strong style={{ display: 'block', color: 'var(--color-primary)' }}>
+                      🔄 Đặt lại tất cả về mặc định
+                    </strong>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                      Xóa toàn bộ tùy chỉnh riêng của tháng này và áp dụng quy tắc mặc định của tiệm.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setBatchModalOpen(false)}
+                >
+                  HỦY
+                </button>
+                <button type="submit" className="btn-primary" disabled={savingSchedule}>
+                  {savingSchedule ? 'ĐANG ÁP DỤNG...' : 'ÁP DỤNG NGAY'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

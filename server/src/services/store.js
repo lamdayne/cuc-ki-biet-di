@@ -3,6 +3,7 @@ import {
   DEFAULT_PACKING_FEE_CONFIG,
   calculateOrderPackingFee,
 } from '../utils/packingFee.js';
+import { resolveDateConfig } from '../utils/dates.js';
 
 export const INITIAL_CATEGORIES = [
   {
@@ -70,8 +71,44 @@ export class MemoryStore {
     this.products = JSON.parse(JSON.stringify(INITIAL_PRODUCTS));
     this.packingFeeConfig = JSON.parse(JSON.stringify(DEFAULT_PACKING_FEE_CONFIG));
     this.packingFee = this.packingFeeConfig.amount;
+    this.dailyOrderSettings = {
+      default_max_orders: 4,
+      allow_weekend_ordering: false,
+      day_configs: {},
+    };
     this.orders = [];
     this.orderItems = [];
+  }
+
+  getDailyOrderSettings() {
+    return this.dailyOrderSettings;
+  }
+
+  updateDailyOrderSettings(newSettings) {
+    this.dailyOrderSettings = {
+      ...this.dailyOrderSettings,
+      ...newSettings,
+      default_max_orders:
+        Number(newSettings.default_max_orders) >= 0
+          ? Number(newSettings.default_max_orders)
+          : 4,
+      day_configs: {
+        ...(this.dailyOrderSettings.day_configs || {}),
+        ...(newSettings.day_configs || {}),
+      },
+    };
+    return this.dailyOrderSettings;
+  }
+
+  updateDayConfig(date, config) {
+    if (!this.dailyOrderSettings.day_configs) {
+      this.dailyOrderSettings.day_configs = {};
+    }
+    this.dailyOrderSettings.day_configs[date] = {
+      ...(this.dailyOrderSettings.day_configs[date] || {}),
+      ...config,
+    };
+    return this.dailyOrderSettings.day_configs[date];
   }
 
   getPackingFeeConfig() {
@@ -182,15 +219,27 @@ export class MemoryStore {
   }
 
   createOrder(code, orderInput) {
-    // 1. Check day slot
-    const count = this.countOrdersForDate(orderInput.pickup_date);
-    if (count >= 4) {
+    // 1. Check day slot & active status
+    const resolved = resolveDateConfig(orderInput.pickup_date, this.dailyOrderSettings);
+    if (!resolved.isOpen) {
       const err = new Error(
-        `DAY_CAPACITY_FULL: Ngày ${orderInput.pickup_date} đã đủ 4 đơn hàng. Vui lòng chọn ngày khác.`
+        `DAY_CLOSED: Tiệm tạm ngưng nhận đơn cho ngày ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`
+      );
+      err.status = 400;
+      err.code = 'DAY_CLOSED';
+      err.userMessage = `Tiệm tạm ngưng nhận đơn cho ngày ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`;
+      throw err;
+    }
+
+    const maxOrders = resolved.maxOrders;
+    const count = this.countOrdersForDate(orderInput.pickup_date);
+    if (count >= maxOrders) {
+      const err = new Error(
+        `DAY_CAPACITY_FULL: Ngày ${orderInput.pickup_date} đã đủ ${maxOrders} đơn hàng. Vui lòng chọn ngày khác.`
       );
       err.status = 409;
       err.code = 'DAY_CAPACITY_FULL';
-      err.userMessage = 'Ngày nhận bánh này vừa nhận đủ 4 đơn hàng. Vui lòng chọn một ngày khác.';
+      err.userMessage = `Ngày nhận bánh này đã nhận đủ ${maxOrders} đơn hàng. Vui lòng chọn một ngày khác.`;
       throw err;
     }
 

@@ -17,10 +17,20 @@ export function errorHandler(err, req, res, next) {
   // 2. Custom Business Errors from Postgres RPC or Services
   const message = err.message || '';
   if (message.includes('DAY_CAPACITY_FULL')) {
+    const customMsg = message.replace(/^.*DAY_CAPACITY_FULL:\s*/, '').trim();
     return res.status(409).json({
       success: false,
       code: 'DAY_CAPACITY_FULL',
-      message: 'Ngày nhận bánh này vừa nhận đủ 4 đơn hàng. Vui lòng chọn một ngày khác.',
+      message: customMsg || 'Ngày nhận bánh này đã nhận đủ số lượng đơn hàng. Vui lòng chọn một ngày khác.',
+    });
+  }
+
+  if (message.includes('DAY_CLOSED')) {
+    const customMsg = message.replace(/^.*DAY_CLOSED:\s*/, '').trim();
+    return res.status(400).json({
+      success: false,
+      code: 'DAY_CLOSED',
+      message: customMsg || 'Ngày nhận bánh này tiệm tạm ngưng nhận đơn. Vui lòng chọn một ngày khác.',
     });
   }
 

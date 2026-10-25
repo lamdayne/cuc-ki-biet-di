@@ -11,6 +11,9 @@ import {
   categorySchema,
   productSchema,
   packingFeeConfigSchema,
+  scheduleSettingsSchema,
+  singleDayConfigSchema,
+  batchDayConfigSchema,
 } from '../schemas/orderSchemas.js';
 
 const router = Router();
@@ -231,6 +234,61 @@ router.put('/settings/packing-fee', async (req, res, next) => {
       success: true,
       data: updated,
       message: 'Đã lưu cấu hình phí gói bánh thành công',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Schedule & Daily Capacity Settings
+ */
+router.get('/schedule-settings', async (req, res, next) => {
+  try {
+    const daysAhead = req.query.daysAhead ? Number(req.query.daysAhead) : 60;
+    const data = await adminService.getScheduleData(daysAhead);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/schedule-settings', async (req, res, next) => {
+  try {
+    const validated = scheduleSettingsSchema.parse(req.body);
+    const updated = await adminService.updateDailyOrderSettings(validated);
+    res.json({
+      success: true,
+      data: updated,
+      message: 'Đã lưu cấu hình lịch nhận đơn thành công',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/schedule-settings/day', async (req, res, next) => {
+  try {
+    const { date, is_open, max_orders, note } = singleDayConfigSchema.parse(req.body);
+    const updated = await adminService.updateDayConfig(date, { is_open, max_orders, note });
+    res.json({
+      success: true,
+      data: updated,
+      message: `Đã cập nhật ngày ${date} thành công`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/schedule-settings/batch', async (req, res, next) => {
+  try {
+    const { dates, is_open, max_orders, reset_to_default } = batchDayConfigSchema.parse(req.body);
+    const updated = await adminService.batchUpdateDays({ dates, is_open, max_orders, reset_to_default });
+    res.json({
+      success: true,
+      data: updated,
+      message: `Đã cập nhật hàng loạt cho ${dates.length} ngày`,
     });
   } catch (err) {
     next(err);

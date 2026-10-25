@@ -6,6 +6,8 @@ import {
   getTodayVietnamString,
   isOrderingAllowed,
   isWeekendInVietnam,
+  resolveDateConfig,
+  DEFAULT_DAILY_SETTINGS,
 } from '../src/utils/dates.js';
 import { createOrderSchema } from '../src/schemas/orderSchemas.js';
 import { orderService } from '../src/services/orderService.js';
@@ -34,41 +36,43 @@ console.log('   ✅ Đạt: 20 mã đơn ngẫu nhiên đều đúng chuẩn CK-
 
 // 2. Kiểm tra cửa sổ 31 ngày nhận bánh
 console.log('2. Kiểm tra danh sách 31 ngày nhận bánh:');
-const days = getUpcoming31Days();
+const testRefDate = new Date('2026-09-22T08:00:00+07:00'); // Thứ 3
+const days = getUpcoming31Days(testRefDate);
 assert.strictEqual(days.length, 31, 'Phải sinh đúng 31 ngày!');
 assert.strictEqual(days[0].isToday, true, 'Ngày đầu tiên phải là hôm nay!');
 assert.strictEqual(days[1].isToday, false);
 assert(days[0].monthGroup.startsWith('Tháng '), 'Tên nhóm tháng phải bắt đầu bằng "Tháng "');
 assert(days[0].weekdayName.length > 0, 'Phải có tên thứ tiếng Việt');
 
-const todayStr = getTodayVietnamString();
-assert.strictEqual(isWithinValidPickupWindow(todayStr), true, 'Hôm nay (Thứ 3) phải hợp lệ');
-assert.strictEqual(isWithinValidPickupWindow('1999-01-01'), false, 'Ngày trong quá khứ không hợp lệ');
+const todayStr = getTodayVietnamString(testRefDate);
+assert.strictEqual(isWithinValidPickupWindow(todayStr, testRefDate), true, 'Hôm nay (Thứ 3) phải hợp lệ');
+assert.strictEqual(isWithinValidPickupWindow('1999-01-01', testRefDate), false, 'Ngày trong quá khứ không hợp lệ');
 
-// Đảm bảo tuyệt đối không có Thứ 7 và Chủ Nhật trong danh sách nhận bánh
+// Đảm bảo mặc định không có Thứ 7 và Chủ Nhật trong danh sách nhận bánh khi chưa mở
 assert(
   days.every((d) => d.weekdayName !== 'Thứ Bảy' && d.weekdayName !== 'Chủ Nhật'),
-  'Danh sách ngày nhận bánh tuyệt đối không được chứa Thứ 7 và Chủ Nhật!'
+  'Danh sách ngày nhận bánh mặc định không được chứa Thứ 7 và Chủ Nhật!'
 );
-assert.strictEqual(isWithinValidPickupWindow('2026-10-03'), false, 'Thứ 7 không được là ngày nhận bánh');
-assert.strictEqual(isWithinValidPickupWindow('2026-10-04'), false, 'Chủ Nhật không được là ngày nhận bánh');
+assert.strictEqual(isWithinValidPickupWindow('2026-10-03', testRefDate), false, 'Thứ 7 không được là ngày nhận bánh');
+assert.strictEqual(isWithinValidPickupWindow('2026-10-04', testRefDate), false, 'Chủ Nhật không được là ngày nhận bánh');
 
-console.log(`   ✅ Đạt: 31 ngày nhận bánh chỉ gồm Thứ 2 đến Thứ 6 (hoàn toàn không có Thứ 7 và Chủ Nhật).\n`);
+console.log(`   ✅ Đạt: 31 ngày nhận bánh mặc định chỉ gồm Thứ 2 đến Thứ 6 (không có Thứ 7 và Chủ Nhật).\n`);
 
 // 3. Kiểm tra Zod schema và validation số điện thoại VN
 console.log('3. Kiểm tra Zod schema đặt bánh:');
+const validPickupDay = getUpcoming31Days()[1]?.dateStr || getUpcoming31Days()[0].dateStr;
 const validPayload = {
   customer_name: 'Nguyễn Văn Bánh',
   phone: '0901234567',
   social_username: '@banhquy_cucki',
   order_channel: 'Instagram',
   delivery_address: '123 Đường Bơ Sữa, Phường 1, Quận 1',
-  pickup_date: days[2].dateStr,
+  pickup_date: validPickupDay,
   ship_payment_method: 'Chuyển khoản tiền ship cho Cúc-Ki',
   note: 'Giao buổi chiều giúp mình nhé',
   items: [
-    { productId: 'a0000000-0000-0000-0000-000000000001', quantity: 3 },
-    { productId: 'a0000000-0000-0000-0000-000000000002', quantity: 2 },
+    { productId: 'a0000000-0000-4000-8000-000000000001', quantity: 3 },
+    { productId: 'a0000000-0000-4000-8000-000000000002', quantity: 2 },
   ],
 };
 
@@ -198,7 +202,7 @@ const testMockPayload = {
   social_username: '@test_cucki',
   order_channel: 'Instagram',
   delivery_address: '123 Đường Bánh Quy, Q1, TPHCM',
-  pickup_date: days[2].dateStr,
+  pickup_date: validPickupDay,
   ship_payment_method: 'Chuyển khoản tiền ship cho Cúc-Ki',
   items: [{ productId: 'mock-id-1', quantity: 1 }],
 };
@@ -219,6 +223,50 @@ await assert.rejects(
   'Tạo đơn vào Chủ Nhật phải bị chặn với lỗi ORDER_WEEKEND_CLOSED'
 );
 console.log('   ✅ Đạt: Chặn tạo đơn thành công vào Thứ 7 & Chủ Nhật, cho phép Thứ 2 đến Thứ 6.\n');
+
+// 7. Kiểm tra tính năng Quản lý On/Off ngày và Tùy chỉnh số lượng đơn nhận
+console.log('7. Kiểm tra tính năng Admin điều chỉnh On/Off và số lượng đơn nhận:');
+const customSettings = {
+  ...DEFAULT_DAILY_SETTINGS,
+  default_max_orders: 5,
+  allow_weekend_ordering: false,
+  day_configs: {
+    '2026-10-27': { is_open: false, max_orders: 5, note: 'Bảo trì lò nướng' },
+    '2026-10-28': { is_open: true, max_orders: 10, note: 'Tăng công suất' },
+    '2026-10-31': { is_open: true, max_orders: 6, note: 'Mở đơn đặc biệt Thứ 7' },
+  },
+};
+
+// Ngày thường mặc định thừa kế default_max_orders = 5
+const weekdayDefault = resolveDateConfig('2026-10-26', customSettings);
+assert.strictEqual(weekdayDefault.isOpen, true, 'Ngày thường không cấu hình phải mở');
+assert.strictEqual(weekdayDefault.maxOrders, 5, 'Phải nhận default_max_orders = 5');
+assert.strictEqual(weekdayDefault.isCustom, false);
+
+// Ngày Thứ 3 bị admin tắt (OFF)
+const closedDay = resolveDateConfig('2026-10-27', customSettings);
+assert.strictEqual(closedDay.isOpen, false, 'Ngày bị admin tắt phải có isOpen = false');
+assert.strictEqual(closedDay.note, 'Bảo trì lò nướng');
+assert.strictEqual(closedDay.isCustom, true);
+
+// Ngày Thứ 4 nâng quota lên 10 đơn
+const boostedDay = resolveDateConfig('2026-10-28', customSettings);
+assert.strictEqual(boostedDay.isOpen, true);
+assert.strictEqual(boostedDay.maxOrders, 10, 'Quota phải được nâng lên 10 đơn');
+assert.strictEqual(boostedDay.isCustom, true);
+
+// Ngày Thứ 7 được admin bật riêng lẻ (mặc dù allow_weekend_ordering = false)
+const openedSaturday = resolveDateConfig('2026-10-31', customSettings);
+assert.strictEqual(openedSaturday.isWeekend, true);
+assert.strictEqual(openedSaturday.isOpen, true, 'Thứ 7 được mở riêng lẻ phải có isOpen = true');
+assert.strictEqual(openedSaturday.maxOrders, 6);
+
+// Ngày Chủ Nhật bình thường vẫn đóng
+const defaultSunday = resolveDateConfig('2026-11-01', customSettings);
+assert.strictEqual(defaultSunday.isWeekend, true);
+assert.strictEqual(defaultSunday.isOpen, false, 'Chủ Nhật chưa mở phải có isOpen = false');
+
+console.log('   ✅ Đạt: Logic resolveDateConfig giải quyết chính xác các trường hợp override On/Off, quota và ghi chú ngày.\n');
 
 console.log('🎉 TẤT CẢ CÁC BÀI KIỂM TRA NGHIỆP VỤ ĐÃ VƯỢT QUA THÀNH CÔNG!');
 

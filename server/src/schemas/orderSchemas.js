@@ -37,7 +37,7 @@ export const createOrderSchema = z
       .string({ required_error: 'Vui lòng chọn ngày nhận bánh' })
       .refine(
         (val) => isWithinValidPickupWindow(val),
-        'Ngày nhận bánh chỉ áp dụng từ Thứ 2 đến Thứ 6 (tiệm không giao nhận bánh vào Thứ 7 và Chủ Nhật)'
+        'Ngày nhận bánh không hợp lệ hoặc nằm ngoài khoảng thời gian nhận đặt trước.'
       ),
 
     ship_payment_method: z.enum(
@@ -140,4 +140,31 @@ export const packingFeeConfigSchema = z.object({
     .default([]),
 });
 
+export const scheduleSettingsSchema = z.object({
+  default_max_orders: z.coerce.number().int().min(0, 'Số đơn tối đa không được âm').default(4),
+  allow_weekend_ordering: z.boolean().default(false),
+  day_configs: z
+    .record(
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày phải là YYYY-MM-DD'),
+      z.object({
+        is_open: z.boolean().default(true),
+        max_orders: z.coerce.number().int().min(0, 'Số đơn tối đa không được âm').default(4),
+        note: z.string().trim().max(200, 'Ghi chú tối đa 200 ký tự').optional().nullable(),
+      })
+    )
+    .default({}),
+});
 
+export const singleDayConfigSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày phải là YYYY-MM-DD'),
+  is_open: z.boolean(),
+  max_orders: z.coerce.number().int().min(0, 'Số đơn tối đa không được âm').optional(),
+  note: z.string().trim().max(200, 'Ghi chú tối đa 200 ký tự').optional().nullable(),
+});
+
+export const batchDayConfigSchema = z.object({
+  dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1, 'Cần ít nhất 1 ngày'),
+  is_open: z.boolean().optional(),
+  max_orders: z.coerce.number().int().min(0).optional(),
+  reset_to_default: z.boolean().optional(),
+});

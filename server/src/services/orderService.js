@@ -6,6 +6,8 @@ import {
   getTodayVietnamString,
   isOrderingAllowed,
   getOrderingScheduleInfo,
+  resolveDateConfig,
+  DEFAULT_DAILY_SETTINGS,
 } from '../utils/dates.js';
 import { memoryStore } from './store.js';
 import {
@@ -28,12 +30,36 @@ function maskPhoneNumber(phone) {
 }
 
 export const orderService = {
-  getOrderingSchedule(referenceDate = new Date()) {
-    return getOrderingScheduleInfo(referenceDate);
+  async getDailyOrderSettings() {
+    if (!isSupabaseLive) {
+      return memoryStore.getDailyOrderSettings();
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'daily_order_settings')
+        .maybeSingle();
+
+      if (error || !data?.value) {
+        return DEFAULT_DAILY_SETTINGS;
+      }
+      return data.value;
+    } catch (err) {
+      console.error('Failed to load daily_order_settings, using fallback:', err);
+      return DEFAULT_DAILY_SETTINGS;
+    }
+  },
+
+  async getOrderingSchedule(referenceDate = new Date()) {
+    const dailySettings = await this.getDailyOrderSettings();
+    return getOrderingScheduleInfo(referenceDate, dailySettings);
   },
 
   async getPublicMenu() {
-    const orderingSchedule = getOrderingScheduleInfo();
+    const dailySettings = await this.getDailyOrderSettings();
+    const orderingSchedule = getOrderingScheduleInfo(new Date(), dailySettings);
 
     if (!isSupabaseLive) {
       const categories = memoryStore.getCategories(true);
@@ -49,6 +75,7 @@ export const orderService = {
         packingFeeConfig: packingConfig,
         isOrderingOpen: orderingSchedule.isOpen,
         orderingSchedule,
+        dailySettings,
       };
     }
 
@@ -88,11 +115,13 @@ export const orderService = {
       packingFeeConfig,
       isOrderingOpen: orderingSchedule.isOpen,
       orderingSchedule,
+      dailySettings,
     };
   },
 
   async getPickupAvailability() {
-    const upcomingDays = getUpcoming31Days();
+    const dailySettings = await this.getDailyOrderSettings();
+    const upcomingDays = getUpcoming31Days(new Date(), dailySettings);
     let countsByDate = {};
 
     if (!isSupabaseLive) {
@@ -100,7 +129,7 @@ export const orderService = {
         acc[day.dateStr] = memoryStore.countOrdersForDate(day.dateStr);
         return acc;
       }, {});
-    } else {
+    } else if (upcomingDays.length > 0) {
       const startDate = upcomingDays[0].dateStr;
       const endDate = upcomingDays[upcomingDays.length - 1].dateStr;
 
@@ -121,15 +150,26 @@ export const orderService = {
 
     return upcomingDays.map((day) => {
       const count = countsByDate[day.dateStr] || 0;
-      const isFull = count >= 4;
+      const max = day.maxOrders;
+      const isFull = !day.isOpen || (max > 0 && count >= max);
       const todaySuffix = day.isToday ? ' (Hôm nay)' : '';
-      const countText = isFull ? '4/4 đơn (FULL)' : `${count}/4 đơn`;
+
+      let countText = '';
+      if (!day.isOpen) {
+        countText = '(Tạm ngưng nhận đơn)';
+      } else if (isFull) {
+        countText = `${count}/${max} đơn (ĐÃ ĐỦ ĐƠN)`;
+      } else {
+        const remaining = max - count;
+        countText = remaining > 0 ? `Còn ${remaining} đơn (${count}/${max} đơn)` : `${count}/${max} đơn`;
+      }
+
       const label = `${day.weekdayName}, ${day.displayDate}${todaySuffix} — ${countText}`;
 
       return {
         ...day,
         count,
-        max: 4,
+        max,
         isFull,
         label,
       };
@@ -137,12 +177,52 @@ export const orderService = {
   },
 
   async createOrder(orderInput, referenceDate = new Date()) {
-    if (!isOrderingAllowed(referenceDate)) {
+    const dailySettings = await this.getDailyOrderSettings();
+
+    if (!isOrderingAllowed(referenceDate, dailySettings)) {
       const err = new Error('ORDER_WEEKEND_CLOSED');
       err.status = 400;
       err.userMessage = 'Tiệm CÚC-KI chỉ nhận đặt hàng từ Thứ 2 đến Thứ 6. Thứ 7 và Chủ Nhật tiệm tạm ngưng nhận đơn mới.';
       throw err;
     }
+
+    // Validate that pickup date is OPEN and not beyond max quota
+    const resolved = resolveDateConfig(orderInput.pickup_date, dailySettings);
+    if (!resolved.isOpen) {
+      const err = new Error(
+        `DAY_CLOSED: Tiệm tạm ngưng nhận đơn cho ngày ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`
+      );
+      err.status = 400;
+      err.code = 'DAY_CLOSED';
+      err.userMessage = `Tiệm tạm ngưng nhận đơn cho ngày ${orderInput.pickup_date}. Vui lòng chọn ngày khác.`;
+      throw err;
+    }
+
+    // Pre-check capacity count
+    let currentCount = 0;
+    if (!isSupabaseLive) {
+      currentCount = memoryStore.countOrdersForDate(orderInput.pickup_date);
+    } else {
+      const { count: dbCount, error: countErr } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('pickup_date', orderInput.pickup_date)
+        .neq('status', 'cancelled');
+      if (!countErr && typeof dbCount === 'number') {
+        currentCount = dbCount;
+      }
+    }
+
+    if (resolved.maxOrders > 0 && currentCount >= resolved.maxOrders) {
+      const err = new Error(
+        `DAY_CAPACITY_FULL: Ngày nhận ${orderInput.pickup_date} đã đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn ngày khác.`
+      );
+      err.status = 409;
+      err.code = 'DAY_CAPACITY_FULL';
+      err.userMessage = `Ngày nhận bánh này đã nhận đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn một ngày khác.`;
+      throw err;
+    }
+
 
     const code = generateOrderCode(new Date(orderInput.pickup_date));
 
