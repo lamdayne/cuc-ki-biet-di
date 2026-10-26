@@ -322,7 +322,7 @@ export default function HomePage() {
 
         <div className="order-layout">
           {/* LEFT: THÔNG TIN KHÁCH HÀNG */}
-          <div>
+          <div className="order-form-column">
             <OrderForm
               formData={formData}
               errors={formErrors}

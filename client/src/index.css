@@ -1356,13 +1356,21 @@ input, select, textarea {
   outline: none;
 }
 
-/* Responsive adjustments */
-@media (max-width: 900px) {
+/* Responsive adjustments for Tablets (iPad) and Mobile */
+@media (max-width: 1024px) {
   .order-layout {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
   }
   .sticky-cart-wrapper {
     position: static;
+    order: 1; /* Giỏ hàng hiển thị ở trên */
+    width: 100%;
+  }
+  .order-form-column {
+    order: 2; /* Form thông tin khách hàng ở dưới */
+    width: 100%;
   }
   .mobile-bottom-bar {
     display: flex;
