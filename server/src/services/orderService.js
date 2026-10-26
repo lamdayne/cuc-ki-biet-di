@@ -240,20 +240,38 @@ export const orderService = {
       })),
     };
 
-    const { data, error } = await supabase.rpc('create_preorder', rpcPayload);
-    if (error) throw error;
+    let data;
+    const { data: rpcData, error } = await supabase.rpc('create_preorder', rpcPayload);
+
+    if (error) {
+      // If error is from legacy RPC having hardcoded 4-order limit, but day has higher limit and slots remain:
+      const isLegacyLimitError =
+        error.message?.includes('DAY_CAPACITY_FULL') &&
+        (error.message?.includes('đủ 4 đơn hàng') || (resolved.maxOrders > 4 && currentCount < resolved.maxOrders));
+
+      if (isLegacyLimitError) {
+        console.warn(
+          `[orderService] Phát hiện RPC create_preorder cũ giới hạn 4 đơn. Tự động chuyển sang tạo đơn trực tiếp cho ngày ${orderInput.pickup_date} (giới hạn thiết lập: ${resolved.maxOrders}, số đơn hiện tại: ${currentCount}).`
+        );
+        data = await this.createOrderDirect(orderInput, code);
+      } else {
+        throw error;
+      }
+    } else {
+      data = rpcData;
+    }
 
     // Recalculate packing fee dynamically based on configured tiers for each cookie item
-    try {
-      const { data: feeSetting } = await supabase
-        .from('settings')
-        .select('value')
-        .eq('key', 'packing_fee')
-        .maybeSingle();
-      const packingConfig = feeSetting?.value ?? DEFAULT_PACKING_FEE_CONFIG;
-      const calculatedPackingFee = calculateOrderPackingFee(orderInput.items, packingConfig);
+    if (data?.order_id && !data.packing_fee_updated) {
+      try {
+        const { data: feeSetting } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'packing_fee')
+          .maybeSingle();
+        const packingConfig = feeSetting?.value ?? DEFAULT_PACKING_FEE_CONFIG;
+        const calculatedPackingFee = calculateOrderPackingFee(orderInput.items, packingConfig);
 
-      if (data?.order_id) {
         const finalTotalPrice = Number(data.subtotal) + calculatedPackingFee;
         await supabase
           .from('orders')
@@ -265,12 +283,131 @@ export const orderService = {
 
         data.packing_fee = calculatedPackingFee;
         data.total_price = finalTotalPrice;
+      } catch (updateErr) {
+        console.error('Failed to sync dynamic packing fee on order:', updateErr);
       }
-    } catch (updateErr) {
-      console.error('Failed to sync dynamic packing fee on order:', updateErr);
     }
 
     return data;
+  },
+
+  async createOrderDirect(orderInput, code) {
+    if (!orderInput.items || orderInput.items.length === 0) {
+      const emptyErr = new Error('Đơn hàng phải có ít nhất 1 sản phẩm.');
+      emptyErr.status = 400;
+      throw emptyErr;
+    }
+
+    // Double-check capacity count right before inserting
+    const { count: freshCount, error: countErr } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('pickup_date', orderInput.pickup_date)
+      .neq('status', 'cancelled');
+
+    if (!countErr && typeof freshCount === 'number') {
+      const dailySettings = await this.getDailyOrderSettings();
+      const resolved = resolveDateConfig(orderInput.pickup_date, dailySettings);
+      if (resolved.maxOrders > 0 && freshCount >= resolved.maxOrders) {
+        const err = new Error(
+          `DAY_CAPACITY_FULL: Ngày nướng ${orderInput.pickup_date} đã đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn ngày khác.`
+        );
+        err.status = 409;
+        err.code = 'DAY_CAPACITY_FULL';
+        err.userMessage = `Ngày nướng bánh này đã nhận đủ ${resolved.maxOrders} đơn hàng. Vui lòng chọn một ngày khác.`;
+        throw err;
+      }
+    }
+
+    const productIds = orderInput.items.map((i) => i.productId);
+    const { data: dbProducts, error: prodErr } = await supabase
+      .from('products')
+      .select('id, name, price, is_available')
+      .in('id', productIds);
+
+    if (prodErr) throw prodErr;
+
+    const productMap = {};
+    (dbProducts || []).forEach((p) => {
+      productMap[p.id] = p;
+    });
+
+    let subtotal = 0;
+    for (const item of orderInput.items) {
+      const prod = productMap[item.productId];
+      if (!prod) {
+        const notFoundErr = new Error('Sản phẩm không tồn tại hoặc đã bị xóa.');
+        notFoundErr.status = 404;
+        throw notFoundErr;
+      }
+      if (!prod.is_available) {
+        const unavailErr = new Error(`Bánh "${prod.name}" hiện tạm hết, vui lòng chọn loại khác.`);
+        unavailErr.status = 400;
+        throw unavailErr;
+      }
+      subtotal += prod.price * item.quantity;
+    }
+
+    const { data: feeSetting } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'packing_fee')
+      .maybeSingle();
+    const packingConfig = feeSetting?.value ?? DEFAULT_PACKING_FEE_CONFIG;
+    const calculatedPackingFee = calculateOrderPackingFee(orderInput.items, packingConfig);
+    const finalTotalPrice = subtotal + calculatedPackingFee;
+
+    const { data: newOrder, error: orderErr } = await supabase
+      .from('orders')
+      .insert({
+        code,
+        customer_name: orderInput.customer_name,
+        phone: orderInput.phone,
+        social_username: orderInput.social_username,
+        order_channel: orderInput.order_channel,
+        custom_channel_name: orderInput.custom_channel_name || null,
+        delivery_address: orderInput.delivery_address,
+        pickup_date: orderInput.pickup_date,
+        ship_payment_method: orderInput.ship_payment_method,
+        note: orderInput.note || null,
+        subtotal,
+        packing_fee: calculatedPackingFee,
+        total_price: finalTotalPrice,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (orderErr) throw orderErr;
+
+    const orderItemsData = orderInput.items.map((item) => {
+      const prod = productMap[item.productId];
+      return {
+        order_id: newOrder.id,
+        product_id: item.productId,
+        product_name: prod.name,
+        unit_price: prod.price,
+        quantity: item.quantity,
+        line_total: prod.price * item.quantity,
+      };
+    });
+
+    const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsData);
+    if (itemsErr) {
+      await supabase.from('orders').delete().eq('id', newOrder.id);
+      throw itemsErr;
+    }
+
+    return {
+      order_id: newOrder.id,
+      code: newOrder.code,
+      pickup_date: newOrder.pickup_date,
+      subtotal: newOrder.subtotal,
+      packing_fee: newOrder.packing_fee,
+      total_price: newOrder.total_price,
+      status: newOrder.status,
+      packing_fee_updated: true,
+    };
   },
 
   async lookupOrderByCode(code) {
